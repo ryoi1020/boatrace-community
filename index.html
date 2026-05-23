@@ -1,0 +1,2416 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC ボートレース予想 AI</title>
+<meta name="theme-color" content="#1d1d1f">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  /* Apple Metal Dark Theme */
+  --ink-deep:#000;
+  --ink:#1d1d1f;
+  --ink-2:#2c2c2e;
+  --ink-3:#3a3a3c;
+  --silver:#f5f5f7;
+  --silver-2:#d2d2d7;
+  --cyan:#0071e3;
+  --cyan-2:#0058b8;
+  --cyan-soft:rgba(0,113,227,.12);
+  --cyan-line:rgba(255,255,255,.10);
+  --cyan-glow:rgba(0,113,227,.45);
+  --gold:#ffd60a;
+  --gold-2:#bf9b00;
+  --white:#f5f5f7;
+  --text:#d2d2d7;
+  --mute:#86868b;
+  --danger:#ff453a;
+  --success:#30d158;
+  --rose:#ff453a;
+  --radius:12px;
+  --radius-lg:18px;
+}
+
+html{background:#000;color-scheme:dark}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue","Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif;
+  font-weight:400;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%,rgba(0,113,227,.12) 0%,transparent 60%),
+    radial-gradient(ellipse 60% 40% at 50% 100%,rgba(255,255,255,.04) 0%,transparent 60%),
+    linear-gradient(180deg,#1d1d1f 0%,#000 100%);
+  background-attachment:fixed;
+  color:var(--text);
+  max-width:760px;
+  margin:0 auto;
+  padding-bottom:60px;
+  min-height:100vh;
+  line-height:1.6;
+  letter-spacing:-0.01em;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+.num,.mono{font-family:"SF Mono","Menlo","Monaco",monospace;font-variant-numeric:tabular-nums}
+.eng{font-family:-apple-system,"SF Pro Display",sans-serif;letter-spacing:0;font-weight:600}
+
+/* ===== HEADER ===== */
+.header{
+  position:relative;
+  background:
+    radial-gradient(ellipse at 30% 0%,rgba(0,113,227,.22) 0%,transparent 60%),
+    linear-gradient(180deg,#1d1d1f 0%,#0a0a0c 100%);
+  padding:34px 24px 70px;
+  overflow:hidden;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.header::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 0%,rgba(255,255,255,.06) 0%,transparent 50%);
+  pointer-events:none;
+}
+.header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative;z-index:2}
+.brand{display:flex;align-items:center;gap:14px}
+.brand-mark{
+  width:44px;height:44px;
+  display:grid;place-items:center;
+  background:linear-gradient(135deg,#48484a 0%,#1d1d1f 100%);
+  border-radius:12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.20),
+    inset 0 -1px 0 rgba(0,0,0,.40),
+    0 6px 16px rgba(0,0,0,.45);
+  color:var(--silver);
+  font-family:-apple-system,"SF Pro Display",sans-serif;
+  font-weight:700;
+  font-size:17px;
+  letter-spacing:0;
+  position:relative;
+}
+.brand-mark::after{
+  content:'';position:absolute;inset:0;border-radius:12px;
+  background:linear-gradient(180deg,rgba(255,255,255,.10) 0%,transparent 50%);
+  pointer-events:none;
+}
+.brand-text{display:flex;flex-direction:column}
+.brand-title{
+  font-family:-apple-system,"SF Pro Display",sans-serif;
+  font-size:26px;
+  font-weight:700;
+  line-height:1.1;
+  letter-spacing:-0.02em;
+  color:var(--silver);
+}
+.brand-title .accent{
+  background:linear-gradient(135deg,#64d2ff 0%,#0071e3 100%);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.brand-sub{
+  font-size:11px;
+  color:var(--mute);
+  letter-spacing:0;
+  margin-top:4px;
+  font-weight:500;
+}
+.dash-btn{
+  background:rgba(255,255,255,.06);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  border:1px solid rgba(255,255,255,.14);
+  color:var(--silver);
+  padding:8px 14px;
+  border-radius:980px;
+  font-size:12px;
+  cursor:pointer;
+  font-family:inherit;
+  font-weight:500;
+  transition:all .25s cubic-bezier(0.22,1,0.36,1);
+  letter-spacing:0;
+}
+.dash-btn:hover{
+  background:rgba(255,255,255,.12);
+  border-color:rgba(255,255,255,.24);
+  transform:translateY(-1px);
+}
+.tagline{
+  position:relative;z-index:2;
+  color:var(--text);
+  font-size:14px;
+  margin-top:18px;
+  max-width:520px;
+  font-weight:400;
+  letter-spacing:-0.005em;
+}
+.tagline strong{
+  font-weight:600;
+  background:linear-gradient(135deg,#64d2ff 0%,#0071e3 100%);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+
+/* ===== WAVE ===== */
+.wave-container{
+  position:absolute;bottom:-1px;left:0;right:0;
+  pointer-events:none;
+  height:64px;
+  overflow:hidden;
+  z-index:1;
+}
+.wave-svg{
+  position:absolute;bottom:0;left:0;
+  width:200%;height:64px;
+  display:block;
+}
+.wave-svg.w1{animation:waveMove 16s linear infinite}
+.wave-svg.w2{animation:waveMove 22s linear infinite reverse}
+.wave-svg.w3{animation:waveMove 30s linear infinite}
+@keyframes waveMove{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.wave-svg.w1 path{fill:rgba(255,255,255,.04)}
+.wave-svg.w2 path{fill:rgba(0,113,227,.10)}
+.wave-svg.w3 path{fill:rgba(0,0,0,.95)}
+
+/* ===== STEP BAR ===== */
+.step-bar{
+  display:flex;
+  background:rgba(28,28,30,.72);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid rgba(255,255,255,.08);
+  position:sticky;top:0;z-index:30;
+}
+.step{
+  flex:1;
+  padding:15px 6px;
+  font-size:12px;
+  font-weight:500;
+  text-align:center;
+  color:var(--mute);
+  letter-spacing:-0.005em;
+  position:relative;
+  transition:color .25s ease;
+}
+.step::after{
+  content:'';position:absolute;left:20%;right:20%;bottom:0;
+  height:2px;background:transparent;transition:background .25s ease;
+  border-radius:1px;
+}
+.step.active{color:var(--silver)}
+.step.active::after{background:var(--cyan);box-shadow:0 0 10px var(--cyan-glow)}
+.step.done{color:var(--success)}
+.step.done::after{background:var(--success)}
+.step-num{font-family:"SF Mono",monospace;opacity:.55;margin-right:4px;font-size:11px}
+
+/* ===== PANELS ===== */
+.panel{display:none;padding:24px}
+.panel.active{display:block;animation:fadeUp .5s cubic-bezier(0.22,1,0.36,1)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* ===== CARDS - Glassmorphism ===== */
+.card{
+  background:linear-gradient(180deg,rgba(58,58,60,.42) 0%,rgba(28,28,30,.42) 100%);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:var(--radius-lg);
+  overflow:hidden;
+  margin-bottom:16px;
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.08),
+    0 12px 32px rgba(0,0,0,.45);
+}
+.card-head{
+  padding:14px 18px;
+  font-size:13px;
+  font-weight:600;
+  letter-spacing:-0.005em;
+  background:linear-gradient(180deg,rgba(255,255,255,.04) 0%,transparent 100%);
+  border-bottom:1px solid rgba(255,255,255,.08);
+  color:var(--silver);
+  display:flex;align-items:center;gap:10px;
+}
+.card-head::before{
+  content:'';display:inline-block;width:3px;height:14px;
+  background:var(--cyan);border-radius:2px;
+  box-shadow:0 0 8px var(--cyan-glow);
+}
+.card-head.gold{color:var(--gold)}
+.card-head.gold::before{background:var(--gold);box-shadow:0 0 10px rgba(255,214,10,.55)}
+.card-head.gray{color:var(--mute)}
+.card-head.gray::before{background:var(--mute);box-shadow:none}
+.card-head.success{color:var(--success)}
+.card-head.success::before{background:var(--success);box-shadow:0 0 8px rgba(48,209,88,.55)}
+
+/* ===== FORMS ===== */
+.label{
+  display:block;
+  font-size:12px;
+  font-weight:500;
+  color:var(--mute);
+  margin-top:14px;
+  margin-bottom:8px;
+  letter-spacing:0;
+}
+textarea,input[type=text],input[type=password],input[type=date],select{
+  width:100%;
+  font-size:15px;
+  font-family:inherit;
+  padding:12px 14px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;
+  background:rgba(255,255,255,.05);
+  color:var(--silver);
+  line-height:1.4;
+  transition:all .25s cubic-bezier(0.22,1,0.36,1);
+  -webkit-appearance:none;
+  appearance:none;
+  letter-spacing:-0.005em;
+}
+select{
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%23f5f5f7' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  padding-right:38px;
+}
+textarea{
+  min-height:200px;resize:vertical;
+  font-family:"SF Mono",monospace;
+  font-size:13px;
+}
+textarea:focus,input:focus,select:focus{
+  outline:none;
+  border-color:var(--cyan);
+  box-shadow:0 0 0 4px var(--cyan-soft);
+  background:rgba(255,255,255,.08);
+}
+select option{background:#1d1d1f;color:var(--silver)}
+input::placeholder,textarea::placeholder{color:rgba(134,134,139,.7)}
+input[type=date]{color-scheme:dark}
+
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* ===== BUTTONS - Apple Style ===== */
+.btn-primary{
+  display:block;width:100%;
+  margin-top:18px;
+  padding:14px 22px;
+  font-size:15px;
+  font-family:inherit;
+  font-weight:600;
+  letter-spacing:-0.01em;
+  color:#fff;
+  background:linear-gradient(180deg,#0a84ff 0%,#0071e3 100%);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:980px;
+  cursor:pointer;
+  position:relative;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    0 0 0 1px rgba(0,113,227,.45),
+    0 10px 26px rgba(0,113,227,.32);
+  transition:all .25s cubic-bezier(0.22,1,0.36,1);
+  overflow:hidden;
+}
+.btn-primary::before{
+  content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);
+  transition:left .7s ease;
+}
+.btn-primary:hover{
+  background:linear-gradient(180deg,#1f8eff 0%,#0a84ff 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.26),
+    0 0 0 1px rgba(0,113,227,.55),
+    0 14px 34px rgba(0,113,227,.42);
+  transform:translateY(-1px);
+}
+.btn-primary:hover::before{left:100%}
+.btn-primary:active{
+  transform:translateY(0);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    0 0 0 1px rgba(0,113,227,.45),
+    0 4px 12px rgba(0,113,227,.28);
+}
+.btn-primary:disabled{
+  background:linear-gradient(180deg,#3a3a3c 0%,#2c2c2e 100%);
+  color:var(--mute);
+  cursor:not-allowed;box-shadow:none;
+  border-color:rgba(255,255,255,.06);
+}
+.btn-back{
+  background:rgba(255,255,255,.06);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  border:1px solid rgba(255,255,255,.14);
+  color:var(--silver);
+  padding:11px 22px;
+  border-radius:980px;
+  font-size:14px;
+  cursor:pointer;
+  margin-top:18px;
+  font-family:inherit;
+  font-weight:500;
+  letter-spacing:-0.005em;
+  transition:all .25s cubic-bezier(0.22,1,0.36,1);
+}
+.btn-back:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22);transform:translateY(-1px)}
+.btn-sm{
+  font-size:12px;
+  padding:8px 14px;
+  border-radius:980px;
+  cursor:pointer;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.06);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  color:var(--silver);
+  font-family:inherit;
+  font-weight:500;
+  letter-spacing:-0.005em;
+  transition:all .25s cubic-bezier(0.22,1,0.36,1);
+}
+.btn-sm:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22);transform:translateY(-1px)}
+.today-tab.active{
+  background:linear-gradient(180deg,#0a84ff 0%,#0071e3 100%);
+  color:#fff;
+  border-color:transparent;
+  box-shadow:0 4px 14px rgba(0,113,227,.40),inset 0 1px 0 rgba(255,255,255,.22);
+}
+
+/* ===== URL BOX ===== */
+.url-box{
+  background:linear-gradient(180deg,rgba(58,58,60,.42) 0%,rgba(28,28,30,.42) 100%);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:var(--radius-lg);
+  padding:22px;
+  margin-bottom:16px;
+  position:relative;
+  overflow:hidden;
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.08),
+    0 12px 32px rgba(0,0,0,.45);
+}
+.url-box::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);
+}
+.url-head{
+  font-size:14px;font-weight:600;color:var(--silver);
+  margin-bottom:18px;letter-spacing:-0.01em;
+  display:flex;align-items:center;gap:10px;
+}
+.url-head::before{
+  content:'';display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:var(--cyan);box-shadow:0 0 12px var(--cyan-glow);
+  animation:pulse 2.2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}
+
+/* ===== LOADING ===== */
+.loading{text-align:center;padding:80px 20px}
+.spinner{
+  width:64px;height:64px;border-radius:50%;
+  position:relative;margin:0 auto 26px;
+}
+.spinner::before,.spinner::after{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  border:2px solid transparent;
+}
+.spinner::before{
+  border-top-color:var(--cyan);border-right-color:var(--cyan);
+  animation:spin 1s cubic-bezier(0.4,0,0.2,1) infinite;
+  box-shadow:0 0 22px var(--cyan-glow);
+}
+.spinner::after{
+  inset:10px;
+  border-left-color:var(--silver);border-bottom-color:var(--silver);
+  animation:spin 1.5s linear infinite reverse;
+  opacity:.5;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-msg{font-size:16px;font-weight:600;color:var(--silver);margin-top:8px;letter-spacing:-0.01em}
+.loading-sub{font-size:12px;color:var(--mute);margin-top:8px;letter-spacing:0}
+
+/* ===== RESULT ===== */
+.result-header{
+  background:linear-gradient(135deg,rgba(0,113,227,.22) 0%,rgba(28,28,30,.6) 100%);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:var(--radius-lg);
+  padding:18px 20px;
+  margin-bottom:14px;
+  position:relative;
+  overflow:hidden;
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+}
+.result-header::after{
+  content:'';position:absolute;right:-60px;top:-60px;
+  width:220px;height:220px;
+  background:radial-gradient(circle,rgba(0,113,227,.30) 0%,transparent 60%);
+  pointer-events:none;
+}
+.result-race{font-size:17px;font-weight:600;color:var(--silver);position:relative;z-index:2;letter-spacing:-0.01em}
+.result-meta{font-size:12px;color:var(--mute);margin-top:6px;position:relative;z-index:2;letter-spacing:0}
+
+.pct-banner{
+  background:linear-gradient(180deg,rgba(58,58,60,.42) 0%,rgba(28,28,30,.42) 100%);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:var(--radius-lg);
+  padding:16px 20px;
+  margin-bottom:14px;
+  font-size:13px;
+  color:var(--text);
+  display:flex;align-items:center;flex-wrap:wrap;gap:14px;
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  letter-spacing:-0.005em;
+}
+.pct-val{
+  font-family:-apple-system,"SF Pro Display",sans-serif;
+  font-size:34px;
+  font-weight:700;
+  letter-spacing:-0.02em;
+  background:linear-gradient(135deg,#64d2ff 0%,#0071e3 100%);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+
+.grade-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.grade-pill{
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:980px;
+  padding:7px 14px;
+  font-size:12px;
+  color:var(--text);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  letter-spacing:-0.005em;
+}
+.grade-s{color:#ff453a;font-weight:700}
+.grade-a{color:#ffd60a;font-weight:700}
+.grade-b{color:var(--mute);font-weight:600}
+
+/* ===== PATTERN BADGE ===== */
+.pattern-badge{
+  display:inline-flex;align-items:center;
+  font-family:inherit;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:-0.005em;
+  padding:7px 14px;
+  border-radius:980px;
+}
+.pattern-A{
+  background:linear-gradient(180deg,#34c759 0%,#28a745 100%);
+  color:#fff;
+  box-shadow:0 4px 14px rgba(48,209,88,.32),inset 0 1px 0 rgba(255,255,255,.18);
+}
+.pattern-B{
+  background:linear-gradient(180deg,#0a84ff 0%,#0071e3 100%);
+  color:#fff;
+  box-shadow:0 4px 14px rgba(0,113,227,.32),inset 0 1px 0 rgba(255,255,255,.18);
+}
+.pattern-C{
+  background:linear-gradient(180deg,#ffd60a 0%,#bf9b00 100%);
+  color:#1d1d1f;
+  box-shadow:0 4px 14px rgba(255,214,10,.32),inset 0 1px 0 rgba(255,255,255,.30);
+}
+
+/* ===== WAKU BADGES (公式カラー維持) ===== */
+.waku-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;
+  border-radius:10px;
+  font-family:-apple-system,"SF Pro Display",sans-serif;
+  font-weight:700;
+  font-size:16px;
+  flex-shrink:0;
+  letter-spacing:0;
+  position:relative;
+  box-shadow:0 2px 6px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.15);
+}
+.waku-1{background:#fff;color:#1d1d1f;box-shadow:0 2px 6px rgba(0,0,0,.25),inset 0 0 0 1px rgba(0,0,0,.06)}
+.waku-2{background:#1d1d1f;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.40),inset 0 0 0 1px rgba(255,255,255,.18)}
+.waku-3{background:#d62b2b;color:#fff}
+.waku-4{background:#2979c9;color:#fff}
+.waku-5{background:#f5c400;color:#1a1a1a}
+.waku-6{background:#25a85a;color:#fff}
+
+/* ===== HONMEI ===== */
+.honmei-row{
+  display:flex;align-items:center;
+  padding:14px 18px;
+  border-bottom:1px solid rgba(255,255,255,.06);
+  gap:12px;
+  transition:background .25s ease;
+}
+.honmei-row:hover{background:rgba(255,255,255,.04)}
+.honmei-row:last-child{border-bottom:none}
+.mark{
+  font-family:inherit;
+  font-size:30px;
+  font-weight:700;
+  min-width:38px;
+  text-align:center;
+  line-height:1;
+}
+.m-hon{color:#ff453a}
+.m-tai{color:#0a84ff}
+.m-san{color:#ffd60a}
+.hname{font-size:15px;font-weight:600;color:var(--silver);letter-spacing:-0.01em}
+.hinfo{font-size:11px;color:var(--mute);margin-top:3px;font-family:"SF Mono",monospace;letter-spacing:0}
+.wpct{
+  font-family:-apple-system,"SF Pro Display",sans-serif;
+  font-size:17px;
+  font-weight:700;
+  color:var(--silver);
+  min-width:60px;
+  text-align:right;
+  letter-spacing:-0.01em;
+}
+.pop{
+  font-family:"SF Mono",monospace;
+  font-size:11px;
+  background:rgba(255,214,10,.10);
+  color:var(--gold);
+  border:1px solid rgba(255,214,10,.24);
+  padding:4px 9px;
+  border-radius:980px;
+  white-space:nowrap;
+  font-weight:600;
+}
+
+/* ===== SHUTSUBA TABLE ===== */
+.shutsuba-table{width:100%;border-collapse:collapse;font-size:13px}
+.shutsuba-table th{
+  background:rgba(255,255,255,.04);
+  padding:11px 8px;
+  text-align:center;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  color:var(--mute);
+  font-size:11px;
+  font-weight:500;
+  letter-spacing:0;
+}
+.shutsuba-table td{
+  padding:11px 8px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  text-align:center;
+  vertical-align:middle;
+  color:var(--text);
+  font-family:"SF Mono",monospace;
+  font-size:12px;
+}
+.shutsuba-table tr:last-child td{border-bottom:none}
+.shutsuba-table tr:hover td{background:rgba(255,255,255,.03)}
+.name-cell{
+  text-align:left!important;
+  font-weight:600;
+  color:var(--silver);
+  font-family:inherit!important;
+  letter-spacing:-0.01em;
+}
+.st-good{color:#30d158;font-weight:700}
+.st-avg{color:var(--text)}
+.st-bad{color:#ff453a;font-weight:700}
+
+/* ===== HAIIN ===== */
+.haiin-item{
+  padding:12px 18px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  font-size:13px;
+  color:var(--text);
+  line-height:1.7;
+  letter-spacing:-0.005em;
+}
+.haiin-item:last-child{border-bottom:none}
+.haiin-num{
+  display:inline-block;
+  font-family:"SF Mono",monospace;
+  color:var(--cyan);
+  font-weight:700;
+  margin-right:10px;
+  min-width:22px;
+}
+
+/* ===== KAIKATA ===== */
+.ktable{width:100%;border-collapse:collapse;font-size:12px}
+.ktable th{
+  padding:11px 10px;
+  text-align:left;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  color:var(--mute);
+  font-size:11px;
+  font-weight:500;
+  background:rgba(255,255,255,.04);
+}
+.ktable td{
+  padding:11px 10px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  color:var(--text);
+  font-family:"SF Mono",monospace;
+}
+.ktable .total-row td{
+  font-weight:700;
+  background:rgba(0,113,227,.12);
+  border-bottom:none;
+  color:var(--silver);
+}
+.kaikata-wrap,.shutsuba-scroll{
+  overflow-x:auto;-webkit-overflow-scrolling:touch;
+}
+.miken-msg{
+  padding:24px;
+  font-size:14px;
+  color:var(--mute);
+  text-align:center;
+  font-family:inherit;
+  letter-spacing:-0.005em;
+}
+
+/* ===== STICKY/WARN BANNERS ===== */
+.race-sticky-bar{
+  position:sticky;top:50px;z-index:20;
+  background:linear-gradient(180deg,rgba(10,132,255,.94) 0%,rgba(0,113,227,.94) 100%);
+  color:#fff;
+  padding:13px 16px;
+  text-align:center;
+  font-family:inherit;
+  font-size:17px;
+  font-weight:600;
+  letter-spacing:-0.01em;
+  border-radius:14px;
+  box-shadow:0 8px 26px rgba(0,113,227,.42),inset 0 1px 0 rgba(255,255,255,.22);
+  margin-bottom:14px;
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  border:1px solid rgba(255,255,255,.10);
+}
+.race-banner-orange{
+  background:linear-gradient(180deg,#48484a 0%,#1d1d1f 100%);
+  color:var(--silver);
+  padding:18px 16px;
+  text-align:center;
+  font-family:inherit;
+  font-size:20px;
+  font-weight:700;
+  letter-spacing:-0.01em;
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.16),
+    0 6px 18px rgba(0,0,0,.40);
+}
+.kaikata-warn{
+  background:linear-gradient(180deg,#ff453a 0%,#d63b32 100%);
+  color:#fff;
+  padding:12px 14px;
+  text-align:center;
+  font-size:13px;
+  font-weight:600;
+  letter-spacing:-0.005em;
+  box-shadow:0 4px 14px rgba(255,69,58,.32),inset 0 1px 0 rgba(255,255,255,.18);
+}
+
+/* ===== ERROR ===== */
+.err-box{
+  background:linear-gradient(180deg,rgba(255,69,58,.16) 0%,rgba(255,69,58,.08) 100%);
+  border:1px solid rgba(255,69,58,.32);
+  border-radius:14px;
+  padding:14px;
+  color:#ffaab4;
+  font-size:13px;
+  margin-top:14px;
+  line-height:1.7;
+  letter-spacing:-0.005em;
+  -webkit-backdrop-filter:blur(20px);
+          backdrop-filter:blur(20px);
+}
+
+/* ===== DASHBOARD ===== */
+.dash-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.dash-title{
+  font-family:-apple-system,"SF Pro Display",sans-serif;
+  font-size:24px;
+  font-weight:700;
+  letter-spacing:-0.02em;
+  color:var(--silver);
+}
+.dash-title .accent{
+  background:linear-gradient(135deg,#64d2ff 0%,#0071e3 100%);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
+.stat-card{
+  background:linear-gradient(180deg,rgba(58,58,60,.42) 0%,rgba(28,28,30,.42) 100%);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:16px 8px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+          backdrop-filter:saturate(180%) blur(20px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.30);
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);
+}
+.stat-label{
+  font-size:11px;
+  color:var(--mute);
+  letter-spacing:0;
+}
+.stat-value{
+  font-family:-apple-system,"SF Pro Display",sans-serif;
+  font-size:24px;
+  font-weight:700;
+  color:var(--silver);
+  margin-top:8px;
+  letter-spacing:-0.02em;
+}
+
+.dash-table{width:100%;border-collapse:collapse;font-size:12px;color:var(--text)}
+.dash-table th{
+  padding:11px 10px;
+  text-align:left;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  color:var(--mute);
+  font-size:11px;
+  font-weight:500;
+  background:rgba(255,255,255,.04);
+}
+.dash-table td{
+  padding:11px 10px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  font-family:"SF Mono",monospace;
+}
+.dash-table tr:hover td{background:rgba(255,255,255,.03)}
+
+.recent-row{
+  padding:13px 16px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+  font-size:13px;
+  letter-spacing:-0.005em;
+}
+.recent-row:last-child{border-bottom:none}
+.recent-row:hover{background:rgba(255,255,255,.03)}
+
+/* ===== RESULT INPUT ===== */
+.result-input-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.result-input-row select{width:68px;text-align:center;padding-right:14px;background-image:none}
+
+/* ===== REVEAL ANIM ===== */
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .6s cubic-bezier(0.22,1,0.36,1),transform .6s cubic-bezier(0.22,1,0.36,1)}
+.reveal.in{opacity:1;transform:translateY(0)}
+
+/* ===== MOBILE ===== */
+@media (max-width:480px){
+  body{padding-bottom:40px}
+  .panel{padding:18px 14px}
+  .header{padding:26px 18px 60px}
+  .brand-title{font-size:22px}
+  .brand-mark{width:38px;height:38px;font-size:15px}
+  .step{font-size:11px;padding:12px 4px}
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+
+  .result-header{padding:14px 16px}
+  .result-race{font-size:15px}
+  .result-meta{font-size:11px}
+
+  .mark{font-size:32px;min-width:38px}
+  .hname{font-size:15px}
+  .wpct{font-size:16px;min-width:56px}
+  .waku-badge{width:30px;height:30px;font-size:15px;border-radius:9px}
+
+  .race-sticky-bar{font-size:15px;padding:11px 12px;border-radius:12px}
+  .race-banner-orange{font-size:17px;padding:14px 12px}
+  .kaikata-warn{font-size:12px;padding:11px 12px}
+
+  .ktable{font-size:11px;min-width:580px}
+  .ktable th,.ktable td{padding:9px 6px;white-space:nowrap}
+  .shutsuba-table{font-size:11px;min-width:560px}
+  .shutsuba-table th,.shutsuba-table td{padding:9px 4px;white-space:nowrap}
+
+  .pct-val{font-size:28px}
+  .pct-banner{padding:14px 16px;gap:10px}
+}
+@media (max-width:375px){
+  .panel{padding:14px 10px}
+  .brand-title{font-size:20px}
+  .race-sticky-bar{font-size:14px}
+  .race-banner-orange{font-size:16px}
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-row">
+    <div class="brand">
+      <div class="brand-mark">CC</div>
+      <div class="brand-text">
+        <div class="brand-title"><span class="accent">BOATRACE</span> AI</div>
+        <div class="brand-sub">Premium Prediction Engine</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="dash-btn" onclick="showBulk()">今日のS級</button>
+      <button class="dash-btn" onclick="showDashboard()">成績を見る</button>
+    </div>
+  </div>
+  <div class="tagline">URLを貼るだけで <strong>◎○▲</strong> から買い目まで自動生成。AIが波・風・選手データを読み解き、勝ち筋をハイライトします。</div>
+  <div class="wave-container">
+    <svg class="wave-svg w1" viewBox="0 0 2880 64" preserveAspectRatio="none"><path d="M0,32 C240,56 480,8 720,28 C960,48 1200,8 1440,32 L1440,64 L0,64 Z M1440,32 C1680,56 1920,8 2160,28 C2400,48 2640,8 2880,32 L2880,64 L1440,64 Z"/></svg>
+    <svg class="wave-svg w2" viewBox="0 0 2880 64" preserveAspectRatio="none"><path d="M0,40 C240,16 480,52 720,24 C960,56 1200,16 1440,40 L1440,64 L0,64 Z M1440,40 C1680,16 1920,52 2160,24 C2400,56 2640,16 2880,40 L2880,64 L1440,64 Z"/></svg>
+    <svg class="wave-svg w3" viewBox="0 0 2880 64" preserveAspectRatio="none"><path d="M0,48 C240,28 480,60 720,40 C960,60 1200,30 1440,48 L1440,64 L0,64 Z M1440,48 C1680,28 1920,60 2160,40 C2400,60 2640,30 2880,48 L2880,64 L1440,64 Z"/></svg>
+  </div>
+</header>
+
+<div class="step-bar">
+  <div class="step active" id="s1"><span class="step-num">01</span> レース指定</div>
+  <div class="step" id="s2"><span class="step-num">02</span> データ取得</div>
+  <div class="step" id="s3"><span class="step-num">03</span> AI予想</div>
+  <div class="step" id="s4"><span class="step-num">04</span> 予想結果</div>
+</div>
+
+<!-- ============== BULK (今日のグレードS一覧) ============== -->
+<div class="panel" id="panel-bulk">
+  <div class="dash-head">
+    <div class="dash-title"><span class="accent">今日のグレードS一覧</span></div>
+    <button class="btn-sm" onclick="showInput()">← 予想に戻る</button>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">本日の一括予想</div>
+    <div style="padding:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <button class="btn-sm" onclick="startBulkPredict('morning')">1〜6R を予想</button>
+        <button class="btn-sm" onclick="startBulkPredict('evening')">7〜12R を予想</button>
+      </div>
+      <button class="btn-primary" id="bulk-start-btn" onclick="startBulkPredict('all')" style="margin-top:0">
+        今日の全レースを一括予想する
+      </button>
+      <div id="bulk-progress-wrap" style="margin-top:14px;display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+          <div id="bulk-progress" style="font-size:12px;color:var(--text);letter-spacing:.04em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+          <button class="btn-sm" id="bulk-cancel-btn" onclick="cancelBulkPredict()" style="background:rgba(255,71,87,.10);border-color:rgba(255,71,87,.4);color:var(--danger);flex-shrink:0">キャンセル</button>
+        </div>
+        <div style="height:6px;background:rgba(0,200,255,.10);border-radius:3px;overflow:hidden">
+          <div id="bulk-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--cyan),var(--gold));box-shadow:0 0 10px var(--cyan-glow);transition:width .4s ease"></div>
+        </div>
+      </div>
+      <div id="bulk-summary" style="margin-top:8px;font-size:12px;color:var(--mute)"></div>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head gray">グレードS該当レース</div>
+    <div style="padding:8px 12px 12px;overflow-x:auto">
+      <table class="dash-table" id="bulk-table">
+        <thead>
+          <tr>
+            <th>会場</th>
+            <th style="text-align:center">R</th>
+            <th style="text-align:center">◎</th>
+            <th style="text-align:center">○</th>
+            <th style="text-align:center">▲</th>
+            <th style="text-align:center">単勝</th>
+            <th style="text-align:center">3連複</th>
+            <th style="text-align:center">3連単</th>
+          </tr>
+        </thead>
+        <tbody id="bulk-tbody">
+          <tr><td colspan="8" style="text-align:center;color:var(--mute);padding:18px">該当レースはまだありません</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============== DASHBOARD ============== -->
+<div class="panel" id="panel-dashboard">
+  <div class="dash-head">
+    <div class="dash-title"><span class="accent">DASHBOARD</span> / 成績</div>
+    <button class="btn-sm" onclick="showInput()">← 予想に戻る</button>
+  </div>
+
+  <div class="stat-grid reveal">
+    <div class="stat-card">
+      <div class="stat-label">予想レース数</div>
+      <div class="stat-value" id="stat-races">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">的中率</div>
+      <div class="stat-value" id="stat-hitrate">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">回収率</div>
+      <div class="stat-value" id="stat-roi">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">収支</div>
+      <div class="stat-value" id="stat-profit">-</div>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">
+      <span style="flex:1">本日の予想一覧</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn-sm today-tab" data-range="all" onclick="loadTodayPredictions('all')" style="padding:5px 10px;font-size:11px">全</button>
+        <button class="btn-sm today-tab" data-range="morning" onclick="loadTodayPredictions('morning')" style="padding:5px 10px;font-size:11px">1〜6R</button>
+        <button class="btn-sm today-tab" data-range="afternoon" onclick="loadTodayPredictions('afternoon')" style="padding:5px 10px;font-size:11px">7〜12R</button>
+      </div>
+    </div>
+    <div id="today-summary" style="font-size:11px;color:var(--mute);padding:6px 14px;letter-spacing:.04em;font-family:'JetBrains Mono',monospace;min-height:14px"></div>
+    <div style="padding:0 12px 12px;overflow-x:auto">
+      <table class="dash-table" id="today-table">
+        <thead>
+          <tr>
+            <th>会場</th>
+            <th style="text-align:center">R</th>
+            <th style="text-align:center">◎</th>
+            <th style="text-align:center">○</th>
+            <th style="text-align:center">▲</th>
+            <th style="text-align:center">単勝</th>
+            <th style="text-align:center">3連複</th>
+            <th style="text-align:center">3連単</th>
+          </tr>
+        </thead>
+        <tbody id="today-tbody">
+          <tr><td colspan="8" style="text-align:center;color:var(--mute);padding:18px">読み込み中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">過去30日の的中率（券種別）</div>
+    <div id="last30-grid" style="padding:14px;display:grid;grid-template-columns:repeat(2,1fr);gap:10px"></div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">パターン別 ランキング</div>
+    <div style="padding:8px 12px 12px;overflow-x:auto">
+      <table class="dash-table">
+        <thead>
+          <tr>
+            <th>順位</th>
+            <th>パターン</th>
+            <th style="text-align:center">レース</th>
+            <th style="text-align:center">的中率</th>
+            <th style="text-align:center">回収率</th>
+            <th style="text-align:right">収支</th>
+          </tr>
+        </thead>
+        <tbody id="pattern-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">過去30日の収支推移（累積）</div>
+    <div style="padding:14px">
+      <svg id="profit-chart" viewBox="0 0 600 200" preserveAspectRatio="none" style="width:100%;height:200px;display:block"></svg>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head gray">外れパターン上位</div>
+    <div id="miss-list" style="padding:8px 14px 12px;font-size:12px"></div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">クイック一括予想</div>
+    <div style="padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <button class="btn-sm" onclick="quickBulk('morning')" style="padding:12px">今日の 1〜6R 一括予想</button>
+      <button class="btn-sm" onclick="quickBulk('evening')" style="padding:12px">今日の 7〜12R 一括予想</button>
+    </div>
+    <div style="padding:0 14px 12px;font-size:11px;color:var(--mute);letter-spacing:.04em">
+      ボタンを押すと「今日のS級」画面で進捗が表示され、グレードSのレースだけ自動保存されます。
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">月別成績</div>
+    <div style="padding:8px 12px 12px;overflow-x:auto">
+      <table class="dash-table" id="monthly-table">
+        <thead>
+          <tr>
+            <th>月</th>
+            <th style="text-align:center">レース</th>
+            <th style="text-align:center">的中率</th>
+            <th style="text-align:center">回収率</th>
+            <th style="text-align:right">収支</th>
+          </tr>
+        </thead>
+        <tbody id="monthly-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head gray">券種別成績</div>
+    <div style="padding:8px 12px 12px;overflow-x:auto">
+      <table class="dash-table">
+        <thead>
+          <tr>
+            <th>券種</th>
+            <th style="text-align:center">購入</th>
+            <th style="text-align:center">的中</th>
+            <th style="text-align:center">的中率</th>
+            <th style="text-align:right">収支</th>
+          </tr>
+        </thead>
+        <tbody id="kenshu-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head gray">
+      <span style="flex:1">直近の予想</span>
+      <button class="btn-sm" id="bulk-fetch-btn" onclick="bulkAutoFetchResults()" style="padding:5px 10px;font-size:11px;background:rgba(0,214,143,.10);border-color:rgba(0,214,143,.4);color:var(--success)">未登録レースを一括取得</button>
+    </div>
+    <div id="bulk-fetch-status" style="font-size:11px;color:var(--mute);padding:6px 14px;letter-spacing:.04em;font-family:'JetBrains Mono',monospace;min-height:14px"></div>
+    <div id="recent-list"></div>
+  </div>
+</div>
+
+<!-- ============== INPUT ============== -->
+<div class="panel active" id="panel-input">
+
+  <div class="url-box reveal">
+    <div class="url-head">レースを選択して予想する</div>
+    <div class="row2" style="margin-bottom:10px">
+      <div>
+        <label class="label" style="margin-top:0">会場</label>
+        <select id="venue-code" onchange="fetchWeather()">
+          <option value="">選択してください</option>
+          <option value="01">桐生</option>
+          <option value="02">戸田</option>
+          <option value="03">江戸川</option>
+          <option value="04">平和島</option>
+          <option value="05">多摩川</option>
+          <option value="06">浜名湖</option>
+          <option value="07">蒲郡</option>
+          <option value="08">常滑</option>
+          <option value="09">津</option>
+          <option value="10">三国</option>
+          <option value="11">びわこ</option>
+          <option value="12">住之江</option>
+          <option value="13">尼崎</option>
+          <option value="14">鳴門</option>
+          <option value="15">丸亀</option>
+          <option value="16">児島</option>
+          <option value="17">宮島</option>
+          <option value="18">徳山</option>
+          <option value="19">下関</option>
+          <option value="20">若松</option>
+          <option value="21">芦屋</option>
+          <option value="22">福岡</option>
+          <option value="23">唐津</option>
+          <option value="24">大村</option>
+        </select>
+      </div>
+      <div>
+        <label class="label" style="margin-top:0">レース番号</label>
+        <select id="race-no">
+          <option value="">選択してください</option>
+          <option value="1">1R</option>
+          <option value="2">2R</option>
+          <option value="3">3R</option>
+          <option value="4">4R</option>
+          <option value="5">5R</option>
+          <option value="6">6R</option>
+          <option value="7">7R</option>
+          <option value="8">8R</option>
+          <option value="9">9R</option>
+          <option value="10">10R</option>
+          <option value="11">11R</option>
+          <option value="12">12R</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <label class="label" style="margin-top:0">日付</label>
+      <input type="date" id="race-date">
+    </div>
+    <button class="btn-primary" onclick="scrapeUrl()" style="margin-top:0">取得して予想する</button>
+  </div>
+
+  <div class="url-box reveal" style="margin-top:14px">
+    <div class="url-head">この会場の全レースを一括予想</div>
+    <div style="font-size:11px;color:var(--mute);letter-spacing:.04em;margin-bottom:10px">
+      上で選択した会場・日付の 1R〜12R をバックグラウンドで順次予想します（10分前後）
+    </div>
+    <button class="btn-primary" id="venue-bulk-btn" onclick="startVenuePredict()" style="margin-top:0">
+      この会場の全レースを一括予想
+    </button>
+    <div id="venue-progress-wrap" style="margin-top:14px;display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+        <div id="venue-progress" style="font-size:12px;color:var(--text);letter-spacing:.04em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+        <button class="btn-sm" id="venue-cancel-btn" onclick="cancelVenuePredict()" style="background:rgba(255,71,87,.10);border-color:rgba(255,71,87,.4);color:var(--danger);flex-shrink:0">キャンセル</button>
+      </div>
+      <div style="height:6px;background:rgba(0,200,255,.10);border-radius:3px;overflow:hidden">
+        <div id="venue-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--cyan),var(--gold));box-shadow:0 0 10px var(--cyan-glow);transition:width .4s ease"></div>
+      </div>
+    </div>
+    <div id="venue-summary" style="margin-top:8px;font-size:12px;color:var(--mute)"></div>
+    <div id="venue-results-wrap" style="margin-top:10px;display:none;overflow-x:auto">
+      <table class="dash-table" id="venue-results-table">
+        <thead>
+          <tr>
+            <th style="text-align:center">R</th>
+            <th style="text-align:center">◎</th>
+            <th style="text-align:center">○</th>
+            <th style="text-align:center">▲</th>
+            <th style="text-align:center">単勝</th>
+            <th style="text-align:center">3連複</th>
+            <th style="text-align:center">3連単</th>
+          </tr>
+        </thead>
+        <tbody id="venue-results-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="err-msg"></div>
+</div>
+
+<!-- ============== LOADING ============== -->
+<div class="panel" id="panel-loading">
+  <div class="loading">
+    <div class="spinner"></div>
+    <div class="loading-msg" id="loading-msg">データを取得中...</div>
+    <div class="loading-sub" id="loading-sub">しばらくお待ちください</div>
+  </div>
+</div>
+
+<!-- ============== RESULT ============== -->
+<div class="panel" id="panel-result">
+  <div id="result-content"></div>
+  <div class="card" id="result-actions" style="margin-top:12px;display:none">
+    <div class="card-head gold">直前情報</div>
+    <div style="padding:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn-sm" onclick="refreshWeather()">天候更新</button>
+    </div>
+    <div id="weather-display" style="padding:0 14px 14px;font-size:12px;color:var(--text);min-height:14px;letter-spacing:.04em;font-family:'JetBrains Mono',monospace"></div>
+  </div>
+  <div class="card" id="result-input-box" style="margin-top:12px">
+    <div class="card-head gray">結果を登録する</div>
+    <div style="padding:14px">
+      <div style="font-size:12px;color:var(--mute);margin-bottom:12px;letter-spacing:.04em">レース終了後に1〜3着の艇番を入力してください</div>
+      <div class="result-input-row">
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--mute);margin-bottom:4px;letter-spacing:.10em;text-transform:uppercase">1着</div>
+          <select id="result-first">
+            <option value="">-</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option>
+          </select>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--mute);margin-bottom:4px;letter-spacing:.10em;text-transform:uppercase">2着</div>
+          <select id="result-second">
+            <option value="">-</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option>
+          </select>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--mute);margin-bottom:4px;letter-spacing:.10em;text-transform:uppercase">3着</div>
+          <select id="result-third">
+            <option value="">-</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option>
+          </select>
+        </div>
+        <button class="btn-primary" style="flex:1;margin-top:0;min-width:140px" onclick="submitResult()">結果を登録</button>
+      </div>
+      <div id="result-status" style="font-size:12px;margin-top:10px"></div>
+    </div>
+  </div>
+  <button class="btn-back" onclick="goBack()">← 別のレースを予想する</button>
+</div>
+
+<script>
+const SERVER = 'https://boatrace-ai-6moe.onrender.com';
+let apiKey = localStorage.getItem('boatrace_api_key') || '';
+
+const VENUE_COORDS = {
+  '01': { name:'桐生',   lat:36.4167, lon:139.2833 },
+  '02': { name:'戸田',   lat:35.8167, lon:139.6833 },
+  '03': { name:'江戸川', lat:35.7167, lon:139.9000 },
+  '04': { name:'平和島', lat:35.5833, lon:139.7333 },
+  '05': { name:'多摩川', lat:35.5667, lon:139.6500 },
+  '06': { name:'浜名湖', lat:34.7500, lon:137.5833 },
+  '07': { name:'蒲郡',   lat:34.8333, lon:137.2167 },
+  '08': { name:'常滑',   lat:34.8833, lon:136.8333 },
+  '09': { name:'津',     lat:34.7333, lon:136.5167 },
+  '10': { name:'三国',   lat:36.2000, lon:136.1500 },
+  '11': { name:'びわこ', lat:35.1333, lon:135.9833 },
+  '12': { name:'住之江', lat:34.6000, lon:135.4833 },
+  '13': { name:'尼崎',   lat:34.7333, lon:135.4167 },
+  '14': { name:'鳴門',   lat:34.1833, lon:134.6167 },
+  '15': { name:'丸亀',   lat:34.2833, lon:133.8000 },
+  '16': { name:'児島',   lat:34.4833, lon:133.8333 },
+  '17': { name:'宮島',   lat:34.2833, lon:132.3167 },
+  '18': { name:'徳山',   lat:34.0500, lon:131.8000 },
+  '19': { name:'下関',   lat:33.9500, lon:130.9333 },
+  '20': { name:'若松',   lat:33.9000, lon:130.7833 },
+  '21': { name:'芦屋',   lat:33.8833, lon:130.6667 },
+  '22': { name:'福岡',   lat:33.5667, lon:130.4000 },
+  '23': { name:'唐津',   lat:33.4500, lon:129.9667 },
+  '24': { name:'大村',   lat:32.9167, lon:129.9667 },
+};
+
+const WEATHER_CODE = {
+  0:'快晴', 1:'晴れ', 2:'一部曇り', 3:'曇り',
+  45:'霧', 48:'霧',
+  51:'小雨', 53:'雨', 55:'強雨',
+  61:'小雨', 63:'雨', 65:'強雨',
+  71:'小雪', 73:'雪', 75:'大雪',
+  80:'にわか雨', 81:'雨', 82:'強雨',
+  95:'雷雨', 96:'雷雨', 99:'激しい雷雨'
+};
+
+let cachedWeather = '';
+
+async function fetchWeatherFor(jcd) {
+  const venue = VENUE_COORDS[jcd];
+  if (!venue) return '';
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${venue.lat}&longitude=${venue.lon}&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wave_height&wind_speed_unit=ms&timezone=Asia%2FTokyo`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const cur = data.current;
+    const weatherDesc = WEATHER_CODE[cur.weather_code] || '不明';
+    const windSpd = cur.wind_speed_10m != null ? Math.round(cur.wind_speed_10m * 10) / 10 : null;
+    const waveH = cur.wave_height != null ? Math.round(cur.wave_height * 100) : null;
+    let parts = [];
+    if (weatherDesc) parts.push(weatherDesc);
+    if (windSpd != null) parts.push(`風速${windSpd}m`);
+    if (waveH != null) parts.push(`波高${waveH}cm`);
+    if (waveH == null && windSpd != null) {
+      parts.push(`波高約${Math.round(windSpd * 8)}cm（推定）`);
+    }
+    return parts.join(' ');
+  } catch(e) {
+    console.warn('天気取得失敗:', e);
+    return '';
+  }
+}
+
+async function fetchWeather() {
+  const jcd = document.getElementById('venue-code').value;
+  if (!jcd) return;
+  cachedWeather = await fetchWeatherFor(jcd);
+}
+
+// ===== 結果画面の天候更新 =====
+async function refreshWeather() {
+  const venue = currentPrediction.venue;
+  const jcd = VENUE_TO_JCD[venue];
+  const display = document.getElementById('weather-display');
+  if (!jcd) {
+    if (display) display.textContent = `会場「${venue}」の jcd が不明`;
+    return;
+  }
+  if (display) display.textContent = '> 天候を再取得中…';
+  const w = await fetchWeatherFor(jcd);
+  cachedWeather = w || cachedWeather;
+  if (display) display.textContent = '> ' + (w || '取得失敗') + `（${new Date().toLocaleTimeString()}）`;
+}
+
+
+window.addEventListener('load', () => {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth()+1).padStart(2,'0');
+  const dd = String(today.getDate()).padStart(2,'0');
+  document.getElementById('race-date').value = `${yyyy}-${mm}-${dd}`;
+  observeReveal();
+});
+
+/* ===== Reveal on scroll ===== */
+function observeReveal() {
+  const els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    els.forEach(el => el.classList.add('in'));
+    return;
+  }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  els.forEach(el => io.observe(el));
+}
+function refreshReveal() {
+  document.querySelectorAll('.panel.active .reveal:not(.in)').forEach(el => {
+    // 強制的に表示（dashboard等で挿入された要素向け）
+    requestAnimationFrame(() => el.classList.add('in'));
+  });
+}
+
+/* ===== Count up ===== */
+function countUp(el, target, opts={}) {
+  const dur = opts.duration ?? 900;
+  const isFloat = !!opts.float;
+  const suffix = opts.suffix || '';
+  const prefix = opts.prefix || '';
+  const start = performance.now();
+  const from = 0;
+  const ease = t => 1 - Math.pow(1 - t, 3);
+  function tick(now) {
+    const t = Math.min(1, (now - start) / dur);
+    const v = from + (target - from) * ease(t);
+    el.textContent = prefix + (isFloat ? v.toFixed(1) : Math.round(v).toLocaleString()) + suffix;
+    if (t < 1) requestAnimationFrame(tick);
+    else el.textContent = prefix + (isFloat ? target.toFixed(1) : Math.round(target).toLocaleString()) + suffix;
+  }
+  requestAnimationFrame(tick);
+}
+
+function setStep(n) {
+  ['s1','s2','s3','s4'].forEach((id,i) => {
+    document.getElementById(id).className = 'step' + (i+1===n?' active':i+1<n?' done':'');
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  if (n === 1) document.getElementById('panel-input').classList.add('active');
+  else if (n === 2 || n === 3) document.getElementById('panel-loading').classList.add('active');
+  else if (n === 4) document.getElementById('panel-result').classList.add('active');
+}
+
+function goBack() { setStep(1); }
+
+function showInput() {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-input').classList.add('active');
+}
+
+function showDashboard() {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-dashboard').classList.add('active');
+  loadStats();
+  loadTodayPredictions(currentTodayRange);
+  refreshReveal();
+}
+
+let currentTodayRange = 'all';
+async function loadTodayPredictions(range) {
+  range = range || 'all';
+  currentTodayRange = range;
+  document.querySelectorAll('.today-tab').forEach(b => {
+    if (b.dataset.range === range) b.classList.add('active');
+    else b.classList.remove('active');
+  });
+  const tbody = document.getElementById('today-tbody');
+  const summary = document.getElementById('today-summary');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--mute);padding:18px">読み込み中...</td></tr>';
+  try {
+    const res = await fetch(`${SERVER}/today_predictions?range=${encodeURIComponent(range)}`);
+    const data = await res.json();
+    renderTodayTable(data.races || []);
+    if (summary) {
+      const lbl = range === 'morning' ? '1〜6R' : range === 'afternoon' ? '7〜12R' : '全レース';
+      summary.textContent = `${data.date || ''} / ${lbl}：${(data.races||[]).length}件`;
+    }
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--danger);padding:18px">読み込み失敗: ${e.message}</td></tr>`;
+  }
+}
+
+function renderTodayTable(races) {
+  const tbody = document.getElementById('today-tbody');
+  if (!races.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--mute);padding:20px">本日の予想はまだありません</td></tr>';
+    return;
+  }
+  tbody.innerHTML = races.map(r => {
+    const h = r.honmei || {}, o = r.niban || {}, s = r.sanban || {};
+    const cell = (b) => b && b.num != null
+      ? `<span class="waku-badge ${wakuClass(b.num)}" style="width:24px;height:24px;font-size:13px;border-radius:6px">${b.num}</span>`
+      : '-';
+    const gradeCell = (g) => `<span class="${gradeClass(g)}" style="font-weight:700">${g||'-'}</span>`;
+    return `<tr style="cursor:pointer" onclick="viewBulkRace(${r.id})">
+      <td>${r.venue||''}</td>
+      <td style="text-align:center">${r.race_num||''}</td>
+      <td style="text-align:center">${cell(h)}</td>
+      <td style="text-align:center">${cell(o)}</td>
+      <td style="text-align:center">${cell(s)}</td>
+      <td style="text-align:center">${gradeCell(r.grade_tan)}</td>
+      <td style="text-align:center">${gradeCell(r.grade_sanren)}</td>
+      <td style="text-align:center">${gradeCell(r.grade_niren)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ===== BULK (今日のS級一覧) =====
+// サーバーの /bulk_predict はバックグラウンドで処理し即座に応答を返す。
+// クライアントは /bulk_status を5秒ごとにポーリングして進捗を取得する。
+let bulkPollTimer = null;
+const VENUE_TO_JCD = Object.fromEntries(Object.entries(VENUE_COORDS).map(([jcd, v]) => [v.name, jcd]));
+
+function quickBulk(range) {
+  // ダッシュボードから呼ばれる：S級画面に遷移してから開始
+  showBulk();
+  setTimeout(() => startBulkPredict(range), 60);
+}
+
+function showBulk() {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-bulk').classList.add('active');
+  refreshReveal();
+  loadBulkResults();
+  // 既に処理が走っていればポーリングを再開
+  fetch(`${SERVER}/bulk_status`).then(r => r.json()).then(st => {
+    if (st && (st.status === 'running' || st.status === 'starting')) {
+      const wrap = document.getElementById('bulk-progress-wrap');
+      const btn = document.getElementById('bulk-start-btn');
+      const cancelBtn = document.getElementById('bulk-cancel-btn');
+      if (wrap) wrap.style.display = 'block';
+      if (btn) { btn.disabled = true; btn.textContent = '処理中...'; }
+      if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = 'キャンセル'; }
+      if (!bulkPollTimer) bulkPollTimer = setInterval(pollBulkStatus, 5000);
+      pollBulkStatus();
+    }
+  }).catch(() => {});
+}
+
+async function loadBulkResults() {
+  try {
+    const res = await fetch(`${SERVER}/bulk_results`);
+    const data = await res.json();
+    renderBulkTable(data.races || []);
+    const sum = document.getElementById('bulk-summary');
+    if (sum) sum.textContent = `${data.date || ''} の保存済みグレードS：${(data.races||[]).length}件`;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function renderBulkTable(races) {
+  const tbody = document.getElementById('bulk-tbody');
+  if (!races.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--mute);padding:18px">該当レースはまだありません</td></tr>';
+    return;
+  }
+  tbody.innerHTML = races.map(r => {
+    const h = r.honmei || {}, o = r.niban || {}, s = r.sanban || {};
+    const cell = (b) => b && b.num != null
+      ? `<span class="waku-badge ${wakuClass(b.num)}" style="width:22px;height:22px;font-size:12px;border-radius:5px;display:inline-flex">${b.num}</span>`
+      : '-';
+    return `<tr style="cursor:pointer" onclick="viewBulkRace(${r.id})">
+      <td>${r.venue||''}</td>
+      <td style="text-align:center">${r.race_num||''}</td>
+      <td style="text-align:center">${cell(h)}</td>
+      <td style="text-align:center">${cell(o)}</td>
+      <td style="text-align:center">${cell(s)}</td>
+      <td style="text-align:center;font-weight:700">${r.grade_tan||'-'}</td>
+      <td style="text-align:center;font-weight:700">${r.grade_sanren||'-'}</td>
+      <td style="text-align:center;font-weight:700">${r.grade_niren||'-'}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function startBulkPredict(range) {
+  range = range || 'all';
+  const btn = document.getElementById('bulk-start-btn');
+  const progress = document.getElementById('bulk-progress');
+  const summary = document.getElementById('bulk-summary');
+  const wrap = document.getElementById('bulk-progress-wrap');
+  const bar = document.getElementById('bulk-progress-bar');
+  const cancelBtn = document.getElementById('bulk-cancel-btn');
+
+  btn.disabled = true;
+  btn.textContent = '処理中...';
+  wrap.style.display = 'block';
+  bar.style.width = '0%';
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = 'キャンセル';
+  progress.textContent = '> サーバーへ起動依頼中…';
+  summary.textContent = '';
+
+  try {
+    const res = await fetch(`${SERVER}/bulk_predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ range }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      // 既に処理中の場合もポーリングへ
+      if (res.status === 409) {
+        progress.textContent = `> 別の処理が実行中（${data.progress||0}/${data.total||0}）— 進捗を表示します`;
+      } else {
+        throw new Error(data.error || '起動失敗');
+      }
+    } else {
+      progress.textContent = `> ${data.race_date || ''} 処理開始（${data.total}件）`;
+    }
+    if (!bulkPollTimer) bulkPollTimer = setInterval(pollBulkStatus, 5000);
+    pollBulkStatus(); // すぐ1回呼ぶ
+  } catch (e) {
+    progress.textContent = `エラー: ${e.message}`;
+    bulkBtnReset();
+  }
+}
+
+async function pollBulkStatus() {
+  try {
+    const res = await fetch(`${SERVER}/bulk_status`);
+    const st = await res.json();
+    const progress = document.getElementById('bulk-progress');
+    const summary = document.getElementById('bulk-summary');
+    const bar = document.getElementById('bulk-progress-bar');
+
+    const pct = st.total > 0 ? (st.progress / st.total * 100) : 0;
+    bar.style.width = `${Math.min(100, pct).toFixed(1)}%`;
+
+    if (st.status === 'running' || st.status === 'starting') {
+      const label = st.current_label || '...';
+      progress.textContent = `> ${label} 処理中 (${st.progress}/${st.total})`;
+      summary.textContent = `グレードS該当：${(st.grade_s||[]).length}件`;
+      renderBulkTable(st.grade_s || []);
+    } else if (st.status === 'done') {
+      progress.textContent = `> 完了 — 全${st.total}レース処理、グレードS ${(st.grade_s||[]).length}件保存`;
+      summary.textContent = `${st.race_date || ''} の処理を完了しました`;
+      renderBulkTable(st.grade_s || []);
+      stopPollAndReset();
+      loadBulkResults();
+    } else if (st.status === 'cancelled') {
+      progress.textContent = `> キャンセルしました（${st.progress}/${st.total} まで処理）`;
+      summary.textContent = `グレードS該当：${(st.grade_s||[]).length}件`;
+      renderBulkTable(st.grade_s || []);
+      stopPollAndReset();
+      loadBulkResults();
+    } else if (st.status === 'error') {
+      progress.textContent = `> エラー: ${st.error || '不明なエラー'}`;
+      stopPollAndReset();
+    } else if (st.status === 'idle') {
+      stopPollAndReset();
+    }
+  } catch (e) {
+    console.warn('bulk_status poll fail:', e);
+  }
+}
+
+function stopPollAndReset() {
+  if (bulkPollTimer) { clearInterval(bulkPollTimer); bulkPollTimer = null; }
+  bulkBtnReset();
+}
+
+function bulkBtnReset() {
+  const btn = document.getElementById('bulk-start-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '今日の全レースを一括予想する'; }
+}
+
+async function cancelBulkPredict() {
+  const cancelBtn = document.getElementById('bulk-cancel-btn');
+  if (cancelBtn) { cancelBtn.disabled = true; cancelBtn.textContent = 'キャンセル中...'; }
+  try {
+    await fetch(`${SERVER}/bulk_cancel`, { method: 'POST' });
+  } catch(e) { console.warn(e); }
+}
+
+async function viewBulkRace(id) {
+  try {
+    const res = await fetch(`${SERVER}/prediction?id=${id}`);
+    const pred = await res.json();
+    if (!pred || pred.error) {
+      alert('予想を読み込めませんでした');
+      return;
+    }
+    currentPrediction = {
+      race_date: pred.race_date,
+      venue: pred.venue,
+      race_num: pred.race_num,
+    };
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-result').classList.add('active');
+    renderResult(pred);
+    refreshReveal();
+  } catch (e) {
+    alert('読み込み失敗: ' + e.message);
+  }
+}
+
+// ===== 会場別 一括予想 =====
+// /venue_predict をバックグラウンド起動し、/venue_status を5秒ごとにポーリングする。
+// 全会場一括の /bulk_predict と並走可能（state は別管理）。
+let venuePollTimer = null;
+
+async function startVenuePredict() {
+  const jcd = document.getElementById('venue-code').value;
+  const dateInput = document.getElementById('race-date');
+  let raceDate = dateInput && dateInput.value ? dateInput.value : '';
+  if (!raceDate) {
+    raceDate = new Date().toISOString().slice(0, 10);
+    if (dateInput) dateInput.value = raceDate;
+  }
+  if (!jcd) {
+    document.getElementById('err-msg').innerHTML = '<div class="err-box">会場を選択してください</div>';
+    return;
+  }
+  document.getElementById('err-msg').innerHTML = '';
+
+  const hd = raceDate.replace(/\//g, '').replace(/-/g, '');
+  const venueName = VENUE_COORDS[jcd]?.name || '';
+
+  const btn = document.getElementById('venue-bulk-btn');
+  const wrap = document.getElementById('venue-progress-wrap');
+  const bar = document.getElementById('venue-progress-bar');
+  const progress = document.getElementById('venue-progress');
+  const summary = document.getElementById('venue-summary');
+  const cancelBtn = document.getElementById('venue-cancel-btn');
+  const resultsWrap = document.getElementById('venue-results-wrap');
+  const tbody = document.getElementById('venue-results-tbody');
+
+  btn.disabled = true;
+  btn.textContent = '処理中...';
+  wrap.style.display = 'block';
+  bar.style.width = '0%';
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = 'キャンセル';
+  progress.textContent = `> ${venueName} サーバーへ起動依頼中…`;
+  summary.textContent = '';
+  resultsWrap.style.display = 'none';
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetch(`${SERVER}/venue_predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jcd, hd }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      if (res.status === 409) {
+        progress.textContent = `> 別の会場処理が実行中（${data.venue_name || ''} ${data.progress||0}/${data.total||0}）— 進捗を表示します`;
+      } else {
+        throw new Error(data.error || '起動失敗');
+      }
+    } else {
+      progress.textContent = `> ${data.venue_name || venueName} 処理開始（${data.total}件）`;
+    }
+    if (!venuePollTimer) venuePollTimer = setInterval(pollVenueStatus, 5000);
+    pollVenueStatus();
+  } catch (e) {
+    progress.textContent = `エラー: ${e.message}`;
+    venueBtnReset();
+  }
+}
+
+async function pollVenueStatus() {
+  try {
+    const res = await fetch(`${SERVER}/venue_status`);
+    const st = await res.json();
+    const progress = document.getElementById('venue-progress');
+    const summary = document.getElementById('venue-summary');
+    const bar = document.getElementById('venue-progress-bar');
+
+    const pct = st.total > 0 ? (st.progress / st.total * 100) : 0;
+    bar.style.width = `${Math.min(100, pct).toFixed(1)}%`;
+
+    if (st.status === 'running' || st.status === 'starting') {
+      const label = st.current_label || '...';
+      progress.textContent = `> ${label} 処理中 (${st.progress}/${st.total})`;
+      const errs = (st.results || []).filter(r => r.error).length;
+      const ok = (st.results || []).length - errs;
+      summary.textContent = `完了 ${ok}件 / エラー ${errs}件`;
+      renderVenueResults(st.venue_name || '', st.results || []);
+    } else if (st.status === 'done') {
+      progress.textContent = `> 完了 — ${st.venue_name || ''} 全${st.total}レース処理`;
+      const errs = (st.results || []).filter(r => r.error).length;
+      const ok = (st.results || []).length - errs;
+      summary.textContent = `完了 ${ok}件 / エラー ${errs}件`;
+      renderVenueResults(st.venue_name || '', st.results || []);
+      stopVenuePollAndReset();
+    } else if (st.status === 'cancelled') {
+      progress.textContent = `> キャンセルしました（${st.progress}/${st.total} まで処理）`;
+      const errs = (st.results || []).filter(r => r.error).length;
+      const ok = (st.results || []).length - errs;
+      summary.textContent = `完了 ${ok}件 / エラー ${errs}件`;
+      renderVenueResults(st.venue_name || '', st.results || []);
+      stopVenuePollAndReset();
+    } else if (st.status === 'error') {
+      progress.textContent = `> エラー: ${st.error || '不明なエラー'}`;
+      stopVenuePollAndReset();
+    } else if (st.status === 'idle') {
+      stopVenuePollAndReset();
+    }
+  } catch (e) {
+    console.warn('venue_status poll fail:', e);
+  }
+}
+
+function renderVenueResults(venueName, results) {
+  const wrap = document.getElementById('venue-results-wrap');
+  const tbody = document.getElementById('venue-results-tbody');
+  if (!results.length) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  tbody.innerHTML = results.map(r => {
+    if (r.error) {
+      return `<tr><td style="text-align:center">${r.race_num||''}</td><td colspan="6" style="color:var(--danger);text-align:center">${r.error}</td></tr>`;
+    }
+    const h = r.honmei || {}, o = r.niban || {}, s = r.sanban || {};
+    const cell = (b) => b && b.num != null
+      ? `<span class="waku-badge ${wakuClass(b.num)}" style="width:22px;height:22px;font-size:12px;border-radius:5px;display:inline-flex">${b.num}</span>`
+      : '-';
+    const click = r.id ? `onclick="viewBulkRace(${r.id})" style="cursor:pointer"` : '';
+    return `<tr ${click}>
+      <td style="text-align:center">${r.race_num||''}</td>
+      <td style="text-align:center">${cell(h)}</td>
+      <td style="text-align:center">${cell(o)}</td>
+      <td style="text-align:center">${cell(s)}</td>
+      <td style="text-align:center;font-weight:700">${r.grade_tan||'-'}</td>
+      <td style="text-align:center;font-weight:700">${r.grade_sanren||'-'}</td>
+      <td style="text-align:center;font-weight:700">${r.grade_niren||'-'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function stopVenuePollAndReset() {
+  if (venuePollTimer) { clearInterval(venuePollTimer); venuePollTimer = null; }
+  venueBtnReset();
+}
+
+function venueBtnReset() {
+  const btn = document.getElementById('venue-bulk-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'この会場の全レースを一括予想'; }
+}
+
+async function cancelVenuePredict() {
+  const cancelBtn = document.getElementById('venue-cancel-btn');
+  if (cancelBtn) { cancelBtn.disabled = true; cancelBtn.textContent = 'キャンセル中...'; }
+  try {
+    await fetch(`${SERVER}/venue_cancel`, { method: 'POST' });
+  } catch(e) { console.warn(e); }
+}
+
+// ページ再表示時に会場ジョブが走っていればポーリング再開
+fetch(`${SERVER}/venue_status`).then(r => r.json()).then(st => {
+  if (st && (st.status === 'running' || st.status === 'starting')) {
+    const wrap = document.getElementById('venue-progress-wrap');
+    const btn = document.getElementById('venue-bulk-btn');
+    const cancelBtn = document.getElementById('venue-cancel-btn');
+    if (wrap) wrap.style.display = 'block';
+    if (btn) { btn.disabled = true; btn.textContent = '処理中...'; }
+    if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = 'キャンセル'; }
+    if (!venuePollTimer) venuePollTimer = setInterval(pollVenueStatus, 5000);
+    pollVenueStatus();
+  }
+}).catch(() => {});
+
+async function loadStats() {
+  try {
+    const res = await fetch(`${SERVER}/stats`);
+    const data = await res.json();
+
+    const t = data.total;
+    const hitrate = t.bets > 0 ? (t.hits / t.bets * 100) : null;
+    const roi = t.bet > 0 ? (t.payout / t.bet * 100) : null;
+    const profit = t.payout - t.bet;
+
+    const racesEl = document.getElementById('stat-races');
+    const hitEl = document.getElementById('stat-hitrate');
+    const roiEl = document.getElementById('stat-roi');
+    const profitEl = document.getElementById('stat-profit');
+
+    countUp(racesEl, t.races || 0);
+    if (hitrate == null) hitEl.textContent = '-'; else countUp(hitEl, hitrate, { float:true, suffix:'%' });
+    if (roi == null) roiEl.textContent = '-'; else countUp(roiEl, roi, { float:true, suffix:'%' });
+    profitEl.textContent = (profit >= 0 ? '+' : '') + profit.toLocaleString() + '円';
+    profitEl.style.color = profit >= 0 ? 'var(--success)' : 'var(--danger)';
+    profitEl.style.textShadow = profit >= 0 ? '0 0 14px rgba(0,214,143,.5)' : '0 0 14px rgba(255,71,87,.5)';
+
+    const tbody = document.getElementById('monthly-tbody');
+    tbody.innerHTML = data.monthly.map(m => {
+      const hr = m.bets > 0 ? (m.hits / m.bets * 100).toFixed(1) : '-';
+      const rr = m.bet > 0 ? (m.payout / m.bet * 100).toFixed(1) : '-';
+      const pf = m.payout - m.bet;
+      const pfColor = pf >= 0 ? 'var(--success)' : 'var(--danger)';
+      return `<tr>
+        <td>${m.month}</td>
+        <td style="text-align:center">${m.races}</td>
+        <td style="text-align:center">${hr !== '-' ? hr + '%' : '-'}</td>
+        <td style="text-align:center">${rr !== '-' ? rr + '%' : '-'}</td>
+        <td style="text-align:right;color:${pfColor};font-weight:700">${pf >= 0 ? '+' : ''}${pf.toLocaleString()}円</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--mute)">まだデータがありません</td></tr>';
+
+    const kbody = document.getElementById('kenshu-tbody');
+    kbody.innerHTML = data.by_kenshu.map(k => {
+      const hr = k.bets > 0 ? (k.hits / k.bets * 100).toFixed(1) : '-';
+      const pf = k.payout - k.bet;
+      const pfColor = pf >= 0 ? 'var(--success)' : 'var(--danger)';
+      return `<tr>
+        <td>${k.kenshu}</td>
+        <td style="text-align:center">${k.bets}</td>
+        <td style="text-align:center">${k.hits}</td>
+        <td style="text-align:center">${hr !== '-' ? hr + '%' : '-'}</td>
+        <td style="text-align:right;color:${pfColor};font-weight:700">${pf >= 0 ? '+' : ''}${pf.toLocaleString()}円</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--mute)">まだデータがありません</td></tr>';
+
+    const rlist = document.getElementById('recent-list');
+    rlist.innerHTML = data.recent.map(r => {
+      const pf = r.payout - r.bet;
+      const hasResult = !!r.result;
+      const pfColor = pf >= 0 ? 'var(--success)' : 'var(--danger)';
+      return `<div class="recent-row">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1">
+            <div style="font-weight:700;color:var(--white)">${r.venue || ''} ${r.race || ''}</div>
+            <div style="color:var(--mute);font-size:11px;margin-top:2px;font-family:'JetBrains Mono',monospace">${r.date}　grade: ${r.grade || '-'}　result: ${r.result || '未登録'}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="color:${pfColor};font-weight:700;font-family:'JetBrains Mono',monospace">${pf >= 0 ? '+' : ''}${pf.toLocaleString()}円</div>
+            <div style="color:var(--mute);font-size:11px;font-family:'JetBrains Mono',monospace">${r.bet.toLocaleString()}円投資</div>
+          </div>
+        </div>
+        ${!hasResult ? `
+        <div style="display:flex;gap:6px;align-items:center;margin-top:10px;flex-wrap:wrap" id="result-row-${r.id}">
+          <select id="f1-${r.id}" style="width:54px;font-size:12px;padding:6px;text-align:center">
+            <option value="">1着</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option>
+          </select>
+          <select id="f2-${r.id}" style="width:54px;font-size:12px;padding:6px;text-align:center">
+            <option value="">2着</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option>
+          </select>
+          <select id="f3-${r.id}" style="width:54px;font-size:12px;padding:6px;text-align:center">
+            <option value="">3着</option>
+            <option>1</option><option>2</option><option>3</option>
+            <option>4</option><option>5</option><option>6</option>
+          </select>
+          <button onclick="submitResultById(${r.id}, '${r.date}', '${r.venue}', '${r.race}')" class="btn-sm" style="min-width:60px">登録</button>
+          <button onclick="autoFetchResultById(${r.id}, '${r.date}', '${r.venue}', '${r.race}')" class="btn-sm" style="min-width:120px;background:rgba(0,214,143,.10);border-color:rgba(0,214,143,.4);color:var(--success)">結果を自動取得</button>
+          <span id="rs-${r.id}" style="font-size:11px;color:var(--mute);width:100%"></span>
+        </div>` : ''}
+      </div>`;
+    }).join('') || '<div style="padding:20px;text-align:center;color:var(--mute)">まだデータがありません</div>';
+
+    // ===== 過去30日 × 券種別 =====
+    const last30 = data.last30_by_kenshu || [];
+    const targets = ['単勝', '2連単', '3連単', '3連複'];
+    const last30Map = Object.fromEntries(last30.map(k => [k.kenshu, k]));
+    const grid = document.getElementById('last30-grid');
+    if (grid) {
+      grid.innerHTML = targets.map(k => {
+        const v = last30Map[k];
+        if (!v) return `<div style="padding:12px;border:1px solid var(--cyan-line);border-radius:8px;background:rgba(15,31,56,.4)">
+          <div style="font-size:10px;color:var(--mute);letter-spacing:.14em">${k}</div>
+          <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--mute);margin-top:6px">-</div>
+        </div>`;
+        const hr = v.bets > 0 ? (v.hits / v.bets * 100) : null;
+        const rr = v.bet > 0 ? (v.payout / v.bet * 100) : null;
+        const pf = (v.payout||0) - (v.bet||0);
+        const pfColor = pf >= 0 ? 'var(--success)' : 'var(--danger)';
+        return `<div style="padding:12px;border:1px solid var(--cyan-line);border-radius:8px;background:rgba(15,31,56,.4)">
+          <div style="font-size:10px;color:var(--mute);letter-spacing:.14em">${k}</div>
+          <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--cyan);margin-top:6px;text-shadow:0 0 12px var(--cyan-glow)">${hr != null ? hr.toFixed(1)+'%' : '-'}</div>
+          <div style="font-size:11px;color:var(--mute);margin-top:4px;font-family:'JetBrains Mono',monospace">${v.hits}/${v.bets}　回収 ${rr != null ? rr.toFixed(1)+'%' : '-'}</div>
+          <div style="font-size:11px;color:${pfColor};font-weight:700;margin-top:2px;font-family:'JetBrains Mono',monospace">${pf >= 0 ? '+' : ''}${pf.toLocaleString()}円</div>
+        </div>`;
+      }).join('');
+    }
+
+    // ===== パターン別ランキング =====
+    const patterns = (data.by_pattern || []).map(p => ({
+      pattern: p.pattern,
+      races: p.races,
+      bet: p.bet, payout: p.payout, hits: p.hits, bets: p.bets,
+      hr: p.bets > 0 ? p.hits / p.bets * 100 : 0,
+      rr: p.bet > 0 ? p.payout / p.bet * 100 : 0,
+      profit: (p.payout||0) - (p.bet||0),
+    }));
+    patterns.sort((a,b) => b.rr - a.rr);
+    const ptbody = document.getElementById('pattern-tbody');
+    if (ptbody) {
+      ptbody.innerHTML = patterns.map((p,i) => {
+        const pfColor = p.profit >= 0 ? 'var(--success)' : 'var(--danger)';
+        return `<tr>
+          <td style="font-weight:700">${i+1}位</td>
+          <td>パターン${p.pattern || '?'}</td>
+          <td style="text-align:center">${p.races}</td>
+          <td style="text-align:center">${p.bets > 0 ? p.hr.toFixed(1)+'%' : '-'}</td>
+          <td style="text-align:center;font-weight:700;color:${p.rr >= 100 ? 'var(--success)' : 'var(--text)'}">${p.bet > 0 ? p.rr.toFixed(1)+'%' : '-'}</td>
+          <td style="text-align:right;color:${pfColor};font-weight:700">${p.profit >= 0 ? '+' : ''}${p.profit.toLocaleString()}円</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--mute)">パターンデータがまだありません</td></tr>';
+    }
+
+    // ===== 収支推移グラフ =====
+    renderProfitChart(data.daily || []);
+
+    // ===== 外れパターン上位 =====
+    const missList = document.getElementById('miss-list');
+    const misses = data.miss_patterns || [];
+    if (missList) {
+      missList.innerHTML = misses.length === 0
+        ? '<div style="color:var(--mute);padding:8px 0">外れデータがまだありません</div>'
+        : misses.map((m,i) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(0,200,255,.06)">
+            <span><span style="color:var(--cyan);font-family:'JetBrains Mono',monospace;margin-right:8px">${String(i+1).padStart(2,'0')}</span>${m.category}</span>
+            <span style="font-family:'JetBrains Mono',monospace;color:var(--mute)">${m.count}件</span>
+          </div>`).join('');
+    }
+
+  } catch(e) {
+    console.error('統計取得失敗:', e);
+  }
+}
+
+function renderProfitChart(daily) {
+  const svg = document.getElementById('profit-chart');
+  if (!svg) return;
+  if (!daily || daily.length < 2) {
+    svg.innerHTML = `<text x="300" y="100" text-anchor="middle" fill="#7a8ca5" font-size="12" font-family="JetBrains Mono">データが不足しています（2日以上必要）</text>`;
+    return;
+  }
+  let cum = 0;
+  const points = daily.map(d => { cum += (d.profit || 0); return { date: d.date, cum }; });
+  const W = 600, H = 200, P = 30;
+  const maxCum = Math.max(0, ...points.map(p => p.cum));
+  const minCum = Math.min(0, ...points.map(p => p.cum));
+  const range = Math.max(1, maxCum - minCum);
+  const xStep = (W - 2*P) / Math.max(1, points.length - 1);
+  const xy = points.map((p, i) => {
+    const x = P + i * xStep;
+    const y = H - P - ((p.cum - minCum) / range) * (H - 2*P);
+    return [x, y, p.cum];
+  });
+  const polyline = xy.map(([x,y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const zeroY = H - P - ((0 - minCum) / range) * (H - 2*P);
+  const lastIdx = xy.length - 1;
+  const [lx, ly, lcum] = xy[lastIdx];
+  const lcolor = lcum >= 0 ? '#00d68f' : '#ff4757';
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="chartLine" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#00c8ff"/>
+        <stop offset="100%" stop-color="#f5c842"/>
+      </linearGradient>
+      <linearGradient id="chartFill" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#00c8ff" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="#00c8ff" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <line x1="${P}" y1="${zeroY.toFixed(1)}" x2="${W-P}" y2="${zeroY.toFixed(1)}" stroke="rgba(155,176,200,.25)" stroke-dasharray="3 4"/>
+    <polygon fill="url(#chartFill)" points="${polyline} ${(W-P).toFixed(1)},${(H-P).toFixed(1)} ${P},${(H-P).toFixed(1)}"/>
+    <polyline points="${polyline}" fill="none" stroke="url(#chartLine)" stroke-width="2"/>
+    <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="4" fill="${lcolor}"/>
+    <text x="${(lx-6).toFixed(1)}" y="${(ly-8).toFixed(1)}" text-anchor="end" fill="${lcolor}" font-size="11" font-family="JetBrains Mono">${lcum >= 0 ? '+' : ''}${lcum.toLocaleString()}円</text>
+    <text x="${P}" y="${(H-8).toFixed(1)}" fill="#7a8ca5" font-size="9" font-family="JetBrains Mono">${points[0].date}</text>
+    <text x="${(W-P).toFixed(1)}" y="${(H-8).toFixed(1)}" text-anchor="end" fill="#7a8ca5" font-size="9" font-family="JetBrains Mono">${points[lastIdx].date}</text>
+  `;
+}
+
+let currentPrediction = {};
+
+async function submitResultById(predId, raceDate, venue, raceNum) {
+  const first  = parseInt(document.getElementById(`f1-${predId}`).value);
+  const second = parseInt(document.getElementById(`f2-${predId}`).value);
+  const third  = parseInt(document.getElementById(`f3-${predId}`).value);
+  const status = document.getElementById(`rs-${predId}`);
+
+  if (!first || !second || !third) {
+    status.textContent = '1〜3着を選択してください';
+    status.style.color = 'var(--danger)';
+    return;
+  }
+
+  try {
+    const res = await fetch(`${SERVER}/result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ race_date: raceDate, venue, race_num: raceNum, first, second, third })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const row = document.getElementById(`result-row-${predId}`);
+    row.innerHTML = `<span style="color:var(--success);font-size:12px;font-weight:500">登録完了！　結果: ${first}-${second}-${third}</span>`;
+
+    setTimeout(loadStats, 500);
+  } catch(e) {
+    status.textContent = `エラー: ${e.message}`;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function bulkAutoFetchResults() {
+  const btn = document.getElementById('bulk-fetch-btn');
+  const status = document.getElementById('bulk-fetch-status');
+  if (btn) { btn.disabled = true; btn.textContent = '取得中...'; }
+  if (status) { status.textContent = '> 統計を取得中…'; status.style.color = 'var(--mute)'; }
+
+  let stats;
+  try {
+    const r = await fetch(`${SERVER}/stats`);
+    stats = await r.json();
+  } catch (e) {
+    if (status) { status.textContent = `統計取得失敗: ${e.message}`; status.style.color = 'var(--danger)'; }
+    if (btn) { btn.disabled = false; btn.textContent = '未登録レースを一括取得'; }
+    return;
+  }
+
+  const candidates = (stats.recent || []).filter(r => !r.result);
+  if (candidates.length === 0) {
+    if (status) { status.textContent = '未登録のレースはありません'; status.style.color = 'var(--mute)'; }
+    if (btn) { btn.disabled = false; btn.textContent = '未登録レースを一括取得'; }
+    return;
+  }
+
+  const races = [];
+  const skipped = [];
+  for (const r of candidates) {
+    const jcd = VENUE_TO_JCD[r.venue];
+    const rno = String(r.race || '').replace(/[^0-9]/g, '');
+    const hd = (r.date || '').replace(/\//g, '').replace(/-/g, '');
+    if (!jcd || !rno || !hd) {
+      skipped.push(r);
+      continue;
+    }
+    races.push({
+      id: r.id, race_date: r.date, venue: r.venue, race_num: r.race,
+      rno, jcd, hd,
+    });
+  }
+
+  if (races.length === 0) {
+    if (status) { status.textContent = `対象なし（${skipped.length}件は会場/日付が不明でスキップ）`; status.style.color = 'var(--mute)'; }
+    if (btn) { btn.disabled = false; btn.textContent = '未登録レースを一括取得'; }
+    return;
+  }
+
+  if (status) status.textContent = `> ${races.length}件のレース結果を公式サイトから取得中…（1件あたり約1.5秒）`;
+
+  try {
+    const res = await fetch(`${SERVER}/bulk_fetch_results`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ races }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const skippedNote = skipped.length ? ` / 会場不明スキップ ${skipped.length}件` : '';
+    if (status) {
+      status.textContent = `> 完了：成功 ${data.success}件 / 結果未確定など ${data.failed}件${skippedNote}`;
+      status.style.color = data.success > 0 ? 'var(--success)' : 'var(--mute)';
+    }
+    loadStats();
+  } catch (e) {
+    if (status) { status.textContent = `エラー: ${e.message}`; status.style.color = 'var(--danger)'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '未登録レースを一括取得'; }
+  }
+}
+
+async function autoFetchResultById(predId, raceDate, venue, raceNum) {
+  const status = document.getElementById(`rs-${predId}`);
+  if (status) { status.textContent = '取得中...'; status.style.color = 'var(--mute)'; }
+  const jcd = VENUE_TO_JCD[venue];
+  if (!jcd) {
+    if (status) { status.textContent = `会場「${venue}」の jcd が不明`; status.style.color = 'var(--danger)'; }
+    return;
+  }
+  const rno = String(raceNum).replace(/[^0-9]/g, '');
+  const hd = (raceDate || '').replace(/\//g, '').replace(/-/g, '');
+  if (!rno || !hd) {
+    if (status) { status.textContent = 'レース番号・日付が不正'; status.style.color = 'var(--danger)'; }
+    return;
+  }
+  try {
+    const res = await fetch(`${SERVER}/result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ race_date: raceDate, venue, race_num: raceNum, rno, jcd, hd })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const row = document.getElementById(`result-row-${predId}`);
+    if (row) row.innerHTML = `<span style="color:var(--success);font-size:12px;font-weight:500">自動取得完了！　結果: ${data.first}-${data.second}-${data.third}</span>`;
+    setTimeout(loadStats, 600);
+  } catch(e) {
+    if (status) { status.textContent = `エラー: ${e.message}`; status.style.color = 'var(--danger)'; }
+  }
+}
+
+async function submitResult() {
+  const first  = parseInt(document.getElementById('result-first').value);
+  const second = parseInt(document.getElementById('result-second').value);
+  const third  = parseInt(document.getElementById('result-third').value);
+
+  if (!first || !second || !third) {
+    document.getElementById('result-status').innerHTML = '<span style="color:var(--danger)">1〜3着をすべて選択してください</span>';
+    return;
+  }
+
+  try {
+    const res = await fetch(`${SERVER}/result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        race_date: currentPrediction.race_date || new Date().toISOString().slice(0,10),
+        venue: currentPrediction.venue || '',
+        race_num: currentPrediction.race_num || '',
+        first, second, third
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    document.getElementById('result-status').innerHTML = `<span style="color:var(--success);font-weight:500">登録完了！結果: ${first}-${second}-${third}</span>`;
+  } catch(e) {
+    document.getElementById('result-status').innerHTML = `<span style="color:var(--danger)">エラー: ${e.message}</span>`;
+  }
+}
+
+async function scrapeUrl() {
+  const jcd = document.getElementById('venue-code').value;
+  const rno = document.getElementById('race-no').value;
+  const raceDate = document.getElementById('race-date').value;
+
+  if (!jcd || !rno || !raceDate) {
+    document.getElementById('err-msg').innerHTML = '<div class="err-box">会場・レース番号・日付をすべて選択してください</div>';
+    return;
+  }
+  document.getElementById('err-msg').innerHTML = '';
+
+  const hd = raceDate.replace(/\//g, '').replace(/-/g, '');
+  const venueName = VENUE_COORDS[jcd]?.name || '';
+
+  setStep(2);
+  document.getElementById('loading-msg').textContent = '出走表・直前情報を取得中...';
+  document.getElementById('loading-sub').textContent = '複数ページを同時取得してAIが解析します（30〜60秒）';
+
+  try {
+    const res = await fetch(`${SERVER}/scrape`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rno, jcd, hd })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (!data.shutsuba_text) throw new Error('出走表テキストの取得に失敗しました');
+
+    await generatePrediction({
+      shutsubaText: data.shutsuba_text,
+      oddsText: data.odds_text || '',
+      venue: venueName,
+      water: cachedWeather,
+      raceDate,
+      raceNum: rno + 'R'
+    });
+  } catch(e) {
+    setStep(1);
+    document.getElementById('err-msg').innerHTML = `<div class="err-box">データ取得エラー: ${e.message}<br><small>サーバーが起動しているか確認してください</small></div>`;
+  }
+}
+
+const LOADING_MSGS = [
+  ['Claude AIが出走表を分析中...', '各選手の能力値を計算しています'],
+  ['STタイム・展示タイムを評価中...', 'スタート力とモーター性能を分析しています'],
+  ['コース別有利不利を分析中...', '会場特性とインコース有利度を考慮中'],
+  ['勝率を算出中...', '全選手の総合スコアを計算しています'],
+  ['敗因シナリオを生成中...', '本命が負けるリスクを洗い出しています'],
+  ['買い目・金額を最適化中...', '自信度ベースで券種と金額を決定しています'],
+];
+
+async function generatePrediction({ shutsubaText, oddsText, venue, water, raceDate, raceNum }) {
+  const text = (shutsubaText || '').trim();
+  if (!text || text.length < 20) {
+    setStep(1);
+    document.getElementById('err-msg').innerHTML = '<div class="err-box">出走表テキストの取得に失敗しました</div>';
+    return;
+  }
+  document.getElementById('err-msg').innerHTML = '';
+
+  setStep(3);
+  let idx = 0;
+  const msgEl = document.getElementById('loading-msg');
+  const subEl = document.getElementById('loading-sub');
+  msgEl.textContent = LOADING_MSGS[0][0];
+  subEl.textContent = LOADING_MSGS[0][1];
+  const timer = setInterval(() => {
+    idx = (idx + 1) % LOADING_MSGS.length;
+    msgEl.textContent = LOADING_MSGS[idx][0];
+    subEl.textContent = LOADING_MSGS[idx][1];
+  }, 3000);
+
+  currentPrediction = { race_date: raceDate, venue, race_num: raceNum };
+
+  try {
+    const res = await fetch(`${SERVER}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shutsuba_text: text,
+        odds_text: oddsText || '',
+        venue,
+        water: water || '',
+        race_date: raceDate,
+        race_num: raceNum
+      })
+    });
+    clearInterval(timer);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderResult(data);
+    setStep(4);
+    const pctEl = document.querySelector('#result-content .pct-val');
+    if (pctEl) {
+      const v = parseFloat(pctEl.dataset.value);
+      if (!isNaN(v)) countUp(pctEl, v, { float:true, suffix:'%' });
+    }
+  } catch(e) {
+    clearInterval(timer);
+    setStep(1);
+    document.getElementById('err-msg').innerHTML = `<div class="err-box">エラー: ${e.message}<br><small>server.py が起動しているか・APIキーが正しいか確認してください</small></div>`;
+  }
+}
+
+function gradeClass(g) {
+  if (!g) return '';
+  return g.startsWith('S') ? 'grade-s' : g.startsWith('A') ? 'grade-a' : 'grade-b';
+}
+
+function wakuClass(n) { return `waku-${Math.min(Number(n)||1, 6)}`; }
+
+function stClass(v) {
+  const f = parseFloat(v);
+  if (isNaN(f)) return 'st-avg';
+  return f <= 0.14 ? 'st-good' : f >= 0.20 ? 'st-bad' : 'st-avg';
+}
+
+function patternClass(p) {
+  return p === 'A' ? 'pattern-A' : p === 'B' ? 'pattern-B' : 'pattern-C';
+}
+function patternLabel(p) {
+  return p === 'A' ? 'パターンA / 人気通り' :
+         p === 'B' ? 'パターンB / 穴狙い' :
+                     'パターンC / 混戦・様子見';
+}
+
+function renderResult(d) {
+  const actions = document.getElementById('result-actions');
+  if (actions) actions.style.display = 'block';
+  const wDisp = document.getElementById('weather-display');
+  if (wDisp) wDisp.textContent = '';
+  const markCol = {'◎':'m-hon','○':'m-tai','▲':'m-san'};
+
+  const honmeiHTML = (d.honmei||[]).map(h => `
+    <div class="honmei-row">
+      <span class="mark ${markCol[h.mark]||''}">${h.mark}</span>
+      <span class="waku-badge ${wakuClass(h.num)}">${h.num}</span>
+      <div style="flex:1;min-width:0">
+        <div class="hname">${h.name}</div>
+        <div class="hinfo">登録${h.reg||'—'}　${h.grade||''}</div>
+      </div>
+      <span class="wpct">${h.pct}%</span>
+      <span class="pop">${h.pop}</span>
+    </div>`).join('');
+
+  const shutsubaRows = (d.shutsuba||[]).map(r => `
+    <tr>
+      <td><span class="waku-badge ${wakuClass(r.num)}" style="width:24px;height:24px;font-size:14px;border-radius:6px">${r.num}</span></td>
+      <td class="name-cell">${r.name}</td>
+      <td>${r.grade||'-'}</td>
+      <td>${r.winRate != null ? Number(r.winRate).toFixed(2) : '-'}</td>
+      <td>${r.nirenRate != null ? Number(r.nirenRate).toFixed(1)+'%' : '-'}</td>
+      <td>${r.motorRate != null ? Number(r.motorRate).toFixed(1) : '-'}</td>
+      <td class="${stClass(r.st)}">${r.st != null ? Number(r.st).toFixed(2) : '-'}</td>
+      <td>${r.tenjiTime != null ? Number(r.tenjiTime).toFixed(2) : '-'}</td>
+    </tr>`).join('');
+
+  const haiin = (d.haiin||[]).map((h,i) => `
+    <div class="haiin-item"><span class="haiin-num">${String(i+1).padStart(2,'0')}</span>${h}</div>`).join('');
+
+  const g = d.grade || {};
+  const venueLabel = currentPrediction.venue || '';
+  const raceLabel  = currentPrediction.race_num || '';
+  const hasRaceInfo = !!(venueLabel || raceLabel);
+  const stickyTopBar = hasRaceInfo
+    ? `<div class="race-sticky-bar">${venueLabel} ${raceLabel}</div>` : '';
+  const raceBanner = `<div class="race-banner-orange">${venueLabel} ${raceLabel}</div>`;
+  const warnBanner = hasRaceInfo
+    ? `<div class="kaikata-warn">⚠️ ${venueLabel} ${raceLabel} の買い目です</div>`
+    : `<div class="kaikata-warn">⚠️ 買い目を確認してから投票してください</div>`;
+  let kaikata = '';
+  if (d.miken) {
+    kaikata = `${raceBanner}<div class="card-head gold">私はこう買う　p1 ${d.honmeiPct}%</div>${warnBanner}
+      <div class="miken-msg">今回は購入見送り</div>`;
+  } else {
+    const rows = (d.kaikata||[]).map(r => `<tr>
+      <td>${r.kenshu}</td><td>${r.kumiawase}</td><td>${r.odds || '-'}</td>
+      <td style="text-align:center">${r.kuchi}</td>
+      <td style="text-align:right">${(Number(r.kin)||0).toLocaleString()}円</td>
+      <td style="font-size:11px;color:var(--mute);font-family:'Noto Sans JP',sans-serif">${r.konkyo}</td>
+    </tr>`).join('');
+    const total = (d.kaikata||[]).reduce((s,r) => s+(Number(r.kin)||0), 0);
+    kaikata = `${raceBanner}<div class="card-head gold">私はこう買う　予算 ${d.budget||''}</div>${warnBanner}
+    <div class="kaikata-wrap"><table class="ktable">
+      <thead><tr><th>券種</th><th>組合せ</th><th>想定オッズ</th><th>口数</th><th>金額</th><th>根拠</th></tr></thead>
+      <tbody>${rows}
+        <tr class="total-row"><td colspan="4" style="text-align:right">合計</td><td style="text-align:right">${total.toLocaleString()}円</td><td></td></tr>
+      </tbody>
+    </table></div>`;
+  }
+
+  const pctNum = parseFloat(d.honmeiPct);
+  const pctData = !isNaN(pctNum) ? `data-value="${pctNum}"` : '';
+
+  document.getElementById('result-content').innerHTML = `
+    ${stickyTopBar}
+    <div class="result-header">
+      <div class="result-race">${d.raceName||''}　${d.venue||''}　${d.raceNum||''}</div>
+      <div class="result-meta">${d.raceType||''}　${d.waterCond||''}</div>
+    </div>
+    <div class="grade-row">
+      <div class="grade-pill">単勝 <span class="${gradeClass(g.tan)}">${g.tan||'-'}</span></div>
+      <div class="grade-pill">2連単 <span class="${gradeClass(g.niren)}">${g.niren||'-'}</span></div>
+      <div class="grade-pill">3連単 <span class="${gradeClass(g.sanren)}">${g.sanren||'-'}</span></div>
+    </div>
+    <div class="pct-banner">
+      <div>◎勝率 (p1)</div>
+      <span class="pct-val" ${pctData}>${d.honmeiPct||'—'}%</span>
+      ${d.race_pattern ? `<span class="pattern-badge ${patternClass(d.race_pattern)}">${patternLabel(d.race_pattern)}</span>` : ''}
+    </div>
+    <div class="card"><div class="card-head">最終予想</div>${honmeiHTML}</div>
+    <div class="card">
+      <div class="card-head success">出走表</div>
+      <div class="shutsuba-scroll">
+        <table class="shutsuba-table">
+          <thead><tr><th>艇</th><th style="text-align:left">選手名</th><th>級別</th><th>勝率</th><th>2連率</th><th>M勝率</th><th>ST</th><th>展示T</th></tr></thead>
+          <tbody>${shutsubaRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card"><div class="card-head gray">敗因シナリオ</div>${haiin}</div>
+    <div class="card">${kaikata}</div>`;
+}
+</script>
+</body>
+</html>
