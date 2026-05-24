@@ -4,15 +4,17 @@ CC ボートレース予想 AI - ローカルサーバー v2
 起動方法: python3 server.py
 """
 
+import hashlib
 import json
 import os
 import re
+import secrets
 import sqlite3
 import threading
 import time
 import urllib.request
 import urllib.error
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -123,7 +125,136 @@ def init_db():
             payout INTEGER DEFAULT 0,
             FOREIGN KEY(prediction_id) REFERENCES predictions(id)
         );
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            username TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
         """)
+
+
+# ===== 認証ヘルパー =====
+SESSION_TTL_DAYS = 30
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def generate_session_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def create_user(email: str, password: str, username: str):
+    """戻り値: (user_id, error_message)。成功時は error は None。"""
+    email = (email or "").strip().lower()
+    username = (username or "").strip()
+    password = password or ""
+    if not EMAIL_RE.match(email):
+        return None, "メールアドレスの形式が不正です"
+    if len(password) < 6:
+        return None, "パスワードは6文字以上で入力してください"
+    if not username or len(username) > 32:
+        return None, "ユーザー名は1〜32文字で入力してください"
+
+    pw_hash = hash_password(password)
+    created = datetime.now().isoformat()
+    try:
+        with sqlite3.connect(DB_PATH, timeout=30) as con:
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("PRAGMA synchronous=NORMAL")
+            cur = con.cursor()
+            cur.execute(
+                "INSERT INTO users (email, password_hash, username, created_at) VALUES (?,?,?,?)",
+                (email, pw_hash, username, created),
+            )
+            return cur.lastrowid, None
+    except sqlite3.IntegrityError:
+        return None, "このメールアドレスは既に登録されています"
+
+
+def authenticate(email: str, password: str):
+    """戻り値: user dict or None"""
+    email = (email or "").strip().lower()
+    pw_hash = hash_password(password or "")
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            "SELECT id, email, username, created_at FROM users WHERE email=? AND password_hash=?",
+            (email, pw_hash),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "email": row[1], "username": row[2], "created_at": row[3]}
+
+
+def create_session(user_id: int) -> str:
+    token = generate_session_token()
+    now = datetime.now()
+    expires = now + timedelta(days=SESSION_TTL_DAYS)
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=NORMAL")
+        cur = con.cursor()
+        cur.execute(
+            "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?,?,?,?)",
+            (token, user_id, now.isoformat(), expires.isoformat()),
+        )
+    return token
+
+
+def delete_session(token: str):
+    if not token:
+        return
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("DELETE FROM sessions WHERE token=?", (token,))
+
+
+def get_user_by_token(token: str):
+    """有効なセッショントークンからユーザーを取得。期限切れは None。"""
+    if not token:
+        return None
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            """SELECT u.id, u.email, u.username, u.created_at, s.expires_at
+               FROM sessions s JOIN users u ON u.id = s.user_id
+               WHERE s.token = ?""",
+            (token,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    try:
+        if datetime.fromisoformat(row[4]) < datetime.now():
+            delete_session(token)
+            return None
+    except Exception:
+        return None
+    return {"id": row[0], "email": row[1], "username": row[2], "created_at": row[3]}
+
+
+def extract_token(headers) -> str:
+    """Authorization: Bearer <token> からトークンを抽出"""
+    auth = headers.get("Authorization") or headers.get("authorization") or ""
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return ""
 
 
 def save_prediction(race_date, venue, race_num, pred_json):
@@ -711,8 +842,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
+
+    # ===== 認証要求ヘルパー =====
+    def _require_user(self):
+        """認証必須エンドポイント用。ユーザーを返す or 401応答して None を返す。"""
+        user = get_user_by_token(extract_token(self.headers))
+        if not user:
+            self.send_json(401, {"error": "ログインが必要です"})
+            return None
+        return user
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -723,6 +863,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/stats":
             self.send_json(200, get_stats())
+            return
+
+        if parsed.path == "/me":
+            user = get_user_by_token(extract_token(self.headers))
+            if not user:
+                self.send_json(401, {"error": "未ログイン"})
+                return
+            self.send_json(200, {"user": user})
             return
 
         if parsed.path in ("/", "/index.html"):
@@ -855,6 +1003,54 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
+
+        # ===== 認証系 =====
+        if parsed.path == "/register":
+            try:
+                data = json.loads(body) if body else {}
+            except Exception:
+                self.send_json(400, {"error": "JSONが不正です"})
+                return
+            user_id, err = create_user(
+                data.get("email", ""), data.get("password", ""), data.get("username", "")
+            )
+            if err:
+                self.send_json(400, {"error": err})
+                return
+            token = create_session(user_id)
+            user = get_user_by_token(token)
+            self.send_json(200, {"token": token, "user": user})
+            return
+
+        if parsed.path == "/login":
+            try:
+                data = json.loads(body) if body else {}
+            except Exception:
+                self.send_json(400, {"error": "JSONが不正です"})
+                return
+            user = authenticate(data.get("email", ""), data.get("password", ""))
+            if not user:
+                self.send_json(401, {"error": "メールアドレスまたはパスワードが違います"})
+                return
+            token = create_session(user["id"])
+            self.send_json(200, {"token": token, "user": user})
+            return
+
+        if parsed.path == "/logout":
+            delete_session(extract_token(self.headers))
+            self.send_json(200, {"ok": True})
+            return
+
+        # ===== ここから先は要ログイン =====
+        AUTH_REQUIRED_POSTS = {
+            "/scrape", "/predict",
+            "/bulk_predict", "/bulk_cancel",
+            "/venue_predict", "/venue_cancel",
+            "/result",
+        }
+        if parsed.path in AUTH_REQUIRED_POSTS:
+            if self._require_user() is None:
+                return
 
         # /bulk_predict : バックグラウンド起動、即座に応答を返す
         if parsed.path == "/bulk_predict":

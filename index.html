@@ -851,6 +851,147 @@ input[type=date]{color-scheme:dark}
   .race-sticky-bar{font-size:14px}
   .race-banner-orange{font-size:16px}
 }
+
+/* ===== AUTH ===== */
+.auth-username{
+  font-size:12px;
+  color:var(--silver);
+  font-weight:500;
+  letter-spacing:0;
+  padding:6px 10px;
+  background:rgba(0,113,227,.10);
+  border:1px solid rgba(0,113,227,.30);
+  border-radius:980px;
+  max-width:120px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.auth-overlay{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.72);
+  -webkit-backdrop-filter:blur(8px);
+          backdrop-filter:blur(8px);
+  display:none;
+  z-index:200;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+.auth-overlay.show{display:flex}
+.auth-card{
+  background:linear-gradient(180deg,#1d1d1f 0%,#0f0f10 100%);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  padding:24px;
+  width:100%;
+  max-width:380px;
+  box-shadow:0 30px 60px rgba(0,0,0,.6);
+  position:relative;
+}
+.auth-card h2{
+  font-size:20px;
+  font-weight:600;
+  letter-spacing:-0.01em;
+  color:var(--silver);
+  margin-bottom:6px;
+}
+.auth-sub{font-size:12px;color:var(--mute);margin-bottom:18px}
+.auth-tabs{
+  display:flex;
+  gap:4px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:980px;
+  padding:4px;
+  margin-bottom:18px;
+}
+.auth-tab{
+  flex:1;
+  background:transparent;
+  border:none;
+  color:var(--mute);
+  padding:8px 12px;
+  border-radius:980px;
+  font-size:12px;
+  font-weight:500;
+  cursor:pointer;
+  font-family:inherit;
+  transition:all .25s cubic-bezier(0.22,1,0.36,1);
+}
+.auth-tab.active{
+  background:rgba(0,113,227,.20);
+  color:var(--silver);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10);
+}
+.auth-form{display:none;flex-direction:column;gap:10px}
+.auth-form.active{display:flex}
+.auth-form input{
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  color:var(--silver);
+  padding:12px 14px;
+  border-radius:10px;
+  font-size:14px;
+  font-family:inherit;
+  outline:none;
+  transition:border-color .2s ease;
+}
+.auth-form input:focus{
+  border-color:var(--cyan);
+  background:rgba(0,113,227,.06);
+}
+.auth-form button[type=submit]{
+  margin-top:8px;
+  background:linear-gradient(180deg,var(--cyan) 0%,var(--cyan-2) 100%);
+  border:1px solid rgba(0,113,227,.50);
+  color:#fff;
+  padding:12px 18px;
+  border-radius:980px;
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer;
+  font-family:inherit;
+  letter-spacing:0;
+  box-shadow:0 8px 20px rgba(0,113,227,.30);
+  transition:transform .15s ease;
+}
+.auth-form button[type=submit]:hover{transform:translateY(-1px)}
+.auth-form button[type=submit]:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.auth-error{
+  margin-top:12px;
+  font-size:12px;
+  color:var(--danger);
+  min-height:16px;
+  letter-spacing:0;
+}
+.auth-close{
+  position:absolute;
+  top:12px;right:12px;
+  background:transparent;
+  border:none;
+  color:var(--mute);
+  font-size:20px;
+  cursor:pointer;
+  font-family:inherit;
+  width:32px;height:32px;
+  border-radius:50%;
+  transition:background .2s ease;
+}
+.auth-close:hover{background:rgba(255,255,255,.06);color:var(--silver)}
+.auth-locked{opacity:.5;pointer-events:none;filter:grayscale(0.4)}
+.auth-locked-note{
+  display:none;
+  margin-top:10px;
+  padding:10px 14px;
+  background:rgba(255,214,10,.08);
+  border:1px solid rgba(255,214,10,.30);
+  border-radius:10px;
+  font-size:12px;
+  color:var(--gold);
+  letter-spacing:0;
+}
+body.guest .auth-locked-note{display:block}
 </style>
 </head>
 <body>
@@ -864,9 +1005,12 @@ input[type=date]{color-scheme:dark}
         <div class="brand-sub">Premium Prediction Engine</div>
       </div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
       <button class="dash-btn" onclick="showBulk()">今日のS級</button>
       <button class="dash-btn" onclick="showDashboard()">成績を見る</button>
+      <span id="auth-username-tag" class="auth-username" style="display:none"></span>
+      <button class="dash-btn" id="auth-login-btn" onclick="openAuthModal('login')">ログイン</button>
+      <button class="dash-btn" id="auth-logout-btn" onclick="doLogout()" style="display:none">ログアウト</button>
     </div>
   </div>
   <div class="tagline">URLを貼るだけで <strong>◎○▲</strong> から買い目まで自動生成。AIが波・風・選手データを読み解き、勝ち筋をハイライトします。</div>
@@ -1245,9 +1389,204 @@ input[type=date]{color-scheme:dark}
   <button class="btn-back" onclick="goBack()">← 別のレースを予想する</button>
 </div>
 
+<!-- ============== 認証モーダル ============== -->
+<div class="auth-overlay" id="auth-overlay">
+  <div class="auth-card">
+    <button class="auth-close" type="button" onclick="closeAuthModal()">×</button>
+    <h2><span class="accent">アカウント</span></h2>
+    <div class="auth-sub">ログインするとAI予想を生成・記録できます</div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" type="button" data-tab="login" onclick="switchAuthTab('login')">ログイン</button>
+      <button class="auth-tab" type="button" data-tab="register" onclick="switchAuthTab('register')">新規登録</button>
+    </div>
+    <form id="auth-form-login" class="auth-form active" onsubmit="return doLogin(event)">
+      <input type="email" id="login-email" placeholder="メールアドレス" autocomplete="email" required>
+      <input type="password" id="login-password" placeholder="パスワード" autocomplete="current-password" required>
+      <button type="submit">ログイン</button>
+    </form>
+    <form id="auth-form-register" class="auth-form" onsubmit="return doRegister(event)">
+      <input type="text" id="register-username" placeholder="ユーザー名（表示名）" autocomplete="nickname" required>
+      <input type="email" id="register-email" placeholder="メールアドレス" autocomplete="email" required>
+      <input type="password" id="register-password" placeholder="パスワード（6文字以上）" autocomplete="new-password" required>
+      <button type="submit">登録してログイン</button>
+    </form>
+    <div id="auth-error" class="auth-error"></div>
+  </div>
+</div>
+
 <script>
 const SERVER = 'https://boatrace-ai-6moe.onrender.com';
 let apiKey = localStorage.getItem('boatrace_api_key') || '';
+
+// ===== 認証 =====
+const AUTH_TOKEN_KEY = 'boatrace_auth_token';
+const AUTH_REQUIRED_PATHS = [
+  '/scrape', '/predict',
+  '/bulk_predict', '/bulk_cancel',
+  '/venue_predict', '/venue_cancel',
+  '/result', '/me', '/logout',
+];
+let currentUser = null;
+
+function getAuthToken() { return localStorage.getItem(AUTH_TOKEN_KEY) || ''; }
+function setAuthToken(t) {
+  if (t) localStorage.setItem(AUTH_TOKEN_KEY, t);
+  else localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+
+// SERVER への要ログイン系 fetch に Authorization ヘッダーを自動付与
+(function patchFetch(){
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    init = init || {};
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (url.startsWith(SERVER)) {
+      const path = url.slice(SERVER.length).split('?')[0];
+      if (AUTH_REQUIRED_PATHS.indexOf(path) !== -1) {
+        const token = getAuthToken();
+        if (token) {
+          const headers = new Headers(init.headers || {});
+          headers.set('Authorization', 'Bearer ' + token);
+          init.headers = headers;
+        }
+      }
+    }
+    return origFetch(input, init);
+  };
+})();
+
+function updateAuthUI() {
+  const tag = document.getElementById('auth-username-tag');
+  const loginBtn = document.getElementById('auth-login-btn');
+  const logoutBtn = document.getElementById('auth-logout-btn');
+  if (currentUser) {
+    document.body.classList.remove('guest');
+    if (tag) { tag.textContent = currentUser.username; tag.style.display = 'inline-block'; }
+    if (loginBtn) loginBtn.style.display = 'none';
+    if (logoutBtn) logoutBtn.style.display = 'inline-block';
+  } else {
+    document.body.classList.add('guest');
+    if (tag) { tag.style.display = 'none'; tag.textContent = ''; }
+    if (loginBtn) loginBtn.style.display = 'inline-block';
+    if (logoutBtn) logoutBtn.style.display = 'none';
+  }
+}
+
+async function refreshMe() {
+  const token = getAuthToken();
+  if (!token) { currentUser = null; updateAuthUI(); return; }
+  try {
+    const res = await fetch(`${SERVER}/me`);
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = data.user || null;
+    } else {
+      currentUser = null;
+      setAuthToken('');
+    }
+  } catch(e) {
+    currentUser = null;
+  }
+  updateAuthUI();
+}
+
+function openAuthModal(tab) {
+  const overlay = document.getElementById('auth-overlay');
+  if (!overlay) return;
+  overlay.classList.add('show');
+  switchAuthTab(tab || 'login');
+  document.getElementById('auth-error').textContent = '';
+}
+
+function closeAuthModal() {
+  const overlay = document.getElementById('auth-overlay');
+  if (overlay) overlay.classList.remove('show');
+}
+
+function switchAuthTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === tab);
+  });
+  document.querySelectorAll('.auth-form').forEach(el => {
+    el.classList.toggle('active', el.id === 'auth-form-' + tab);
+  });
+  document.getElementById('auth-error').textContent = '';
+}
+
+async function doLogin(ev) {
+  if (ev) ev.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  try {
+    const res = await fetch(`${SERVER}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ログインに失敗しました');
+    setAuthToken(data.token);
+    currentUser = data.user;
+    updateAuthUI();
+    closeAuthModal();
+  } catch(e) {
+    errEl.textContent = e.message;
+  }
+  return false;
+}
+
+async function doRegister(ev) {
+  if (ev) ev.preventDefault();
+  const username = document.getElementById('register-username').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  try {
+    const res = await fetch(`${SERVER}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, username }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '登録に失敗しました');
+    setAuthToken(data.token);
+    currentUser = data.user;
+    updateAuthUI();
+    closeAuthModal();
+  } catch(e) {
+    errEl.textContent = e.message;
+  }
+  return false;
+}
+
+async function doLogout() {
+  try { await fetch(`${SERVER}/logout`, { method: 'POST' }); } catch(e) {}
+  setAuthToken('');
+  currentUser = null;
+  updateAuthUI();
+}
+
+function requireLogin() {
+  if (!currentUser) {
+    openAuthModal('login');
+    return false;
+  }
+  return true;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateAuthUI();
+  refreshMe();
+  const overlay = document.getElementById('auth-overlay');
+  if (overlay) {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeAuthModal();
+    });
+  }
+});
 
 const VENUE_COORDS = {
   '01': { name:'桐生',   lat:36.4167, lon:139.2833 },
@@ -1530,6 +1869,7 @@ function renderBulkTable(races) {
 }
 
 async function startBulkPredict(range) {
+  if (!requireLogin()) return;
   range = range || 'all';
   const btn = document.getElementById('bulk-start-btn');
   const progress = document.getElementById('bulk-progress');
@@ -1657,6 +1997,7 @@ async function viewBulkRace(id) {
 let venuePollTimer = null;
 
 async function startVenuePredict() {
+  if (!requireLogin()) return;
   const jcd = document.getElementById('venue-code').value;
   const dateInput = document.getElementById('race-date');
   let raceDate = dateInput && dateInput.value ? dateInput.value : '';
@@ -2189,6 +2530,7 @@ async function submitResult() {
 }
 
 async function scrapeUrl() {
+  if (!requireLogin()) return;
   const jcd = document.getElementById('venue-code').value;
   const rno = document.getElementById('race-no').value;
   const raceDate = document.getElementById('race-date').value;
