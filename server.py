@@ -140,6 +140,23 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+        CREATE TABLE IF NOT EXISTS user_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            race_date TEXT NOT NULL,
+            venue TEXT NOT NULL,
+            race_num TEXT NOT NULL,
+            honmei_num INTEGER NOT NULL,
+            niban_num INTEGER NOT NULL,
+            sanban_num INTEGER NOT NULL,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_predictions_user_date
+            ON user_predictions(user_id, race_date);
+        CREATE INDEX IF NOT EXISTS idx_user_predictions_race
+            ON user_predictions(race_date, venue, race_num);
         """)
 
 
@@ -296,6 +313,108 @@ def save_prediction(race_date, venue, race_num, pred_json):
             """, (pred_id, k.get("kenshu"), k.get("kumiawase"), k.get("kin", 0), float(k.get("odds", 0) or 0)))
 
     return pred_id
+
+
+def _judge_user_prediction(honmei, niban, sanban, first, second, third):
+    """ユーザー予想 ◎○▲ と結果 1-2-3 を照合して、最も高い的中レベルを返す。
+    レベル: 'sanren_tan' > 'sanren_fuku' > 'niren_tan' > 'niren_fuku' > 'tan' > 'none'"""
+    if first is None or second is None or third is None:
+        return None
+    pred = (honmei, niban, sanban)
+    actual = (first, second, third)
+    actual_set = {first, second, third}
+    if pred == actual:
+        return "sanren_tan"
+    if set(pred) == actual_set:
+        return "sanren_fuku"
+    if honmei == first and niban == second:
+        return "niren_tan"
+    if {honmei, niban} == {first, second}:
+        return "niren_fuku"
+    if honmei == first:
+        return "tan"
+    return "none"
+
+
+def save_user_prediction(user_id, race_date, venue, race_num, honmei, niban, sanban, note=""):
+    """戻り値: (id, error)。失敗時は id=None"""
+    try:
+        honmei = int(honmei); niban = int(niban); sanban = int(sanban)
+    except (TypeError, ValueError):
+        return None, "◎○▲ は数値で指定してください"
+    for n in (honmei, niban, sanban):
+        if n < 1 or n > 6:
+            return None, "◎○▲ は 1〜6 の数字で指定してください"
+    if len({honmei, niban, sanban}) != 3:
+        return None, "◎○▲ は異なる艇番にしてください"
+    race_date = (race_date or "").strip()
+    venue = (venue or "").strip()
+    race_num = (race_num or "").strip()
+    if not race_date or not venue or not race_num:
+        return None, "日付・会場・レース番号は必須です"
+
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=NORMAL")
+        cur = con.cursor()
+        cur.execute(
+            """INSERT INTO user_predictions
+               (user_id, race_date, venue, race_num,
+                honmei_num, niban_num, sanban_num, note, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (user_id, race_date, venue, race_num, honmei, niban, sanban,
+             (note or "").strip()[:200], datetime.now().isoformat()),
+        )
+        return cur.lastrowid, None
+
+
+def delete_user_prediction(user_id, pred_id):
+    """戻り値: True if deleted, False if not found / not owner"""
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            "DELETE FROM user_predictions WHERE id=? AND user_id=?",
+            (pred_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def list_user_predictions(user_id, limit=100):
+    """ユーザー自身の予想一覧。結果テーブルと JOIN して的中レベルを付与する。"""
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            """SELECT up.id, up.race_date, up.venue, up.race_num,
+                      up.honmei_num, up.niban_num, up.sanban_num,
+                      up.note, up.created_at,
+                      r.first, r.second, r.third
+               FROM user_predictions up
+               LEFT JOIN results r
+                 ON r.race_date = up.race_date
+                AND r.venue     = up.venue
+                AND r.race_num  = up.race_num
+               WHERE up.user_id = ?
+               ORDER BY up.id DESC
+               LIMIT ?""",
+            (user_id, limit),
+        )
+        rows = cur.fetchall()
+    out = []
+    for r in rows:
+        hit = _judge_user_prediction(r[4], r[5], r[6], r[9], r[10], r[11])
+        out.append({
+            "id": r[0],
+            "race_date": r[1], "venue": r[2], "race_num": r[3],
+            "honmei": r[4], "niban": r[5], "sanban": r[6],
+            "note": r[7] or "",
+            "created_at": r[8],
+            "result": ({"first": r[9], "second": r[10], "third": r[11]}
+                       if r[9] is not None else None),
+            "hit": hit,
+        })
+    return out
 
 
 def save_result(race_date, venue, race_num, first, second, third):
@@ -873,6 +992,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"user": user})
             return
 
+        if parsed.path == "/my_predictions":
+            user = self._require_user()
+            if not user:
+                return
+            self.send_json(200, {"predictions": list_user_predictions(user["id"])})
+            return
+
         if parsed.path in ("/", "/index.html"):
             html_path = os.path.join(os.path.dirname(__file__), "index.html")
             if os.path.exists(html_path):
@@ -1047,10 +1173,53 @@ class Handler(BaseHTTPRequestHandler):
             "/bulk_predict", "/bulk_cancel",
             "/venue_predict", "/venue_cancel",
             "/result",
+            "/my_predictions", "/my_predictions/delete",
         }
+        user = None
         if parsed.path in AUTH_REQUIRED_POSTS:
-            if self._require_user() is None:
+            user = self._require_user()
+            if user is None:
                 return
+
+        # /my_predictions : 手動予想を記録
+        if parsed.path == "/my_predictions":
+            try:
+                data = json.loads(body) if body else {}
+            except Exception:
+                self.send_json(400, {"error": "JSONが不正です"})
+                return
+            pid, err = save_user_prediction(
+                user["id"],
+                data.get("race_date", ""),
+                data.get("venue", ""),
+                data.get("race_num", ""),
+                data.get("honmei"), data.get("niban"), data.get("sanban"),
+                data.get("note", ""),
+            )
+            if err:
+                self.send_json(400, {"error": err})
+                return
+            self.send_json(200, {"ok": True, "id": pid})
+            return
+
+        # /my_predictions/delete : 自分の予想を削除
+        if parsed.path == "/my_predictions/delete":
+            try:
+                data = json.loads(body) if body else {}
+            except Exception:
+                self.send_json(400, {"error": "JSONが不正です"})
+                return
+            try:
+                pid = int(data.get("id"))
+            except (TypeError, ValueError):
+                self.send_json(400, {"error": "id が必要です"})
+                return
+            ok = delete_user_prediction(user["id"], pid)
+            if not ok:
+                self.send_json(404, {"error": "見つからないか権限がありません"})
+                return
+            self.send_json(200, {"ok": True})
+            return
 
         # /bulk_predict : バックグラウンド起動、即座に応答を返す
         if parsed.path == "/bulk_predict":

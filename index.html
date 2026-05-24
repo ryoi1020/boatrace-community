@@ -1008,6 +1008,7 @@ body.guest .auth-locked-note{display:block}
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
       <button class="dash-btn" onclick="showBulk()">今日のS級</button>
       <button class="dash-btn" onclick="showDashboard()">成績を見る</button>
+      <button class="dash-btn" id="my-pred-btn" onclick="showMyPredictions()" style="display:none">予想記録</button>
       <span id="auth-username-tag" class="auth-username" style="display:none"></span>
       <button class="dash-btn" id="auth-login-btn" onclick="openAuthModal('login')">ログイン</button>
       <button class="dash-btn" id="auth-logout-btn" onclick="doLogout()" style="display:none">ログアウト</button>
@@ -1079,6 +1080,101 @@ body.guest .auth-locked-note{display:block}
         </tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- ============== 予想記録 (Phase2) ============== -->
+<div class="panel" id="panel-my-predictions">
+  <div class="dash-head">
+    <div class="dash-title"><span class="accent">予想記録</span> / 自分の予想</div>
+    <button class="btn-sm" onclick="showInput()">← 予想に戻る</button>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">新しい予想を記録</div>
+    <div style="padding:14px">
+      <div class="row2" style="margin-bottom:10px">
+        <div>
+          <label class="label" style="margin-top:0">日付</label>
+          <input type="date" id="mp-date">
+        </div>
+        <div>
+          <label class="label" style="margin-top:0">レース番号</label>
+          <select id="mp-race-num">
+            <option value="">選択</option>
+            <option value="1R">1R</option><option value="2R">2R</option>
+            <option value="3R">3R</option><option value="4R">4R</option>
+            <option value="5R">5R</option><option value="6R">6R</option>
+            <option value="7R">7R</option><option value="8R">8R</option>
+            <option value="9R">9R</option><option value="10R">10R</option>
+            <option value="11R">11R</option><option value="12R">12R</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:10px">
+        <label class="label" style="margin-top:0">会場</label>
+        <select id="mp-venue">
+          <option value="">選択してください</option>
+          <option value="桐生">桐生</option><option value="戸田">戸田</option>
+          <option value="江戸川">江戸川</option><option value="平和島">平和島</option>
+          <option value="多摩川">多摩川</option><option value="浜名湖">浜名湖</option>
+          <option value="蒲郡">蒲郡</option><option value="常滑">常滑</option>
+          <option value="津">津</option><option value="三国">三国</option>
+          <option value="びわこ">びわこ</option><option value="住之江">住之江</option>
+          <option value="尼崎">尼崎</option><option value="鳴門">鳴門</option>
+          <option value="丸亀">丸亀</option><option value="児島">児島</option>
+          <option value="宮島">宮島</option><option value="徳山">徳山</option>
+          <option value="下関">下関</option><option value="若松">若松</option>
+          <option value="芦屋">芦屋</option><option value="福岡">福岡</option>
+          <option value="唐津">唐津</option><option value="大村">大村</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+        <div>
+          <label class="label" style="margin-top:0">◎ 本命</label>
+          <select id="mp-honmei"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select>
+        </div>
+        <div>
+          <label class="label" style="margin-top:0">○ 対抗</label>
+          <select id="mp-niban"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select>
+        </div>
+        <div>
+          <label class="label" style="margin-top:0">▲ 単穴</label>
+          <select id="mp-sanban"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select>
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="label" style="margin-top:0">メモ（任意）</label>
+        <input type="text" id="mp-note" placeholder="一言メモ" maxlength="200">
+      </div>
+      <button class="btn-primary" id="mp-submit-btn" onclick="submitMyPrediction()" style="margin-top:0">この予想を記録する</button>
+      <div id="mp-form-status" style="margin-top:10px;font-size:12px;min-height:16px"></div>
+    </div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head gray">記録した予想（最新100件）</div>
+    <div style="padding:8px 12px 12px;overflow-x:auto">
+      <table class="dash-table" id="mp-table">
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>会場</th>
+            <th style="text-align:center">R</th>
+            <th style="text-align:center">◎</th>
+            <th style="text-align:center">○</th>
+            <th style="text-align:center">▲</th>
+            <th style="text-align:center">結果</th>
+            <th style="text-align:center">的中</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="mp-tbody">
+          <tr><td colspan="9" style="text-align:center;color:var(--mute);padding:18px">読み込み中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="mp-summary" style="padding:0 14px 14px;font-size:12px;color:var(--mute)"></div>
   </div>
 </div>
 
@@ -1425,6 +1521,7 @@ const AUTH_REQUIRED_PATHS = [
   '/bulk_predict', '/bulk_cancel',
   '/venue_predict', '/venue_cancel',
   '/result', '/me', '/logout',
+  '/my_predictions', '/my_predictions/delete',
 ];
 let currentUser = null;
 
@@ -1459,16 +1556,19 @@ function updateAuthUI() {
   const tag = document.getElementById('auth-username-tag');
   const loginBtn = document.getElementById('auth-login-btn');
   const logoutBtn = document.getElementById('auth-logout-btn');
+  const myPredBtn = document.getElementById('my-pred-btn');
   if (currentUser) {
     document.body.classList.remove('guest');
     if (tag) { tag.textContent = currentUser.username; tag.style.display = 'inline-block'; }
     if (loginBtn) loginBtn.style.display = 'none';
     if (logoutBtn) logoutBtn.style.display = 'inline-block';
+    if (myPredBtn) myPredBtn.style.display = 'inline-block';
   } else {
     document.body.classList.add('guest');
     if (tag) { tag.style.display = 'none'; tag.textContent = ''; }
     if (loginBtn) loginBtn.style.display = 'inline-block';
     if (logoutBtn) logoutBtn.style.display = 'none';
+    if (myPredBtn) myPredBtn.style.display = 'none';
   }
 }
 
@@ -1810,6 +1910,148 @@ function quickBulk(range) {
   // ダッシュボードから呼ばれる：S級画面に遷移してから開始
   showBulk();
   setTimeout(() => startBulkPredict(range), 60);
+}
+
+function showMyPredictions() {
+  if (!requireLogin()) return;
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-my-predictions').classList.add('active');
+  const dateEl = document.getElementById('mp-date');
+  if (dateEl && !dateEl.value) {
+    const t = new Date();
+    dateEl.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+  }
+  loadMyPredictions();
+  refreshReveal();
+}
+
+const HIT_LABEL = {
+  sanren_tan:  { label: '3連単的中', color: 'var(--gold)' },
+  sanren_fuku: { label: '3連複的中', color: 'var(--cyan)' },
+  niren_tan:   { label: '2連単的中', color: 'var(--cyan)' },
+  niren_fuku:  { label: '2連複的中', color: 'var(--cyan)' },
+  tan:         { label: '単勝的中',  color: 'var(--success)' },
+  none:        { label: '不的中',    color: 'var(--mute)' },
+};
+
+async function loadMyPredictions() {
+  const tbody = document.getElementById('mp-tbody');
+  const summary = document.getElementById('mp-summary');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--mute);padding:18px">読み込み中...</td></tr>';
+  try {
+    const res = await fetch(`${SERVER}/my_predictions`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `${res.status}`);
+    }
+    const data = await res.json();
+    renderMyPredictions(data.predictions || []);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger);padding:18px">読み込み失敗: ${e.message}</td></tr>`;
+    if (summary) summary.textContent = '';
+  }
+}
+
+function renderMyPredictions(preds) {
+  const tbody = document.getElementById('mp-tbody');
+  const summary = document.getElementById('mp-summary');
+  if (!preds.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--mute);padding:20px">記録した予想はまだありません</td></tr>';
+    if (summary) summary.textContent = '';
+    return;
+  }
+  tbody.innerHTML = preds.map(p => {
+    const wakuCell = (n) => `<span class="waku-badge ${wakuClass(n)}" style="width:24px;height:24px;font-size:13px;border-radius:6px">${n}</span>`;
+    const result = p.result
+      ? `<span class="mono" style="color:var(--silver)">${p.result.first}-${p.result.second}-${p.result.third}</span>`
+      : '<span style="color:var(--mute)">未登録</span>';
+    let hitCell;
+    if (!p.result) hitCell = '<span style="color:var(--mute);font-size:11px">—</span>';
+    else {
+      const h = HIT_LABEL[p.hit] || HIT_LABEL.none;
+      hitCell = `<span style="color:${h.color};font-weight:600;font-size:12px">${h.label}</span>`;
+    }
+    return `<tr>
+      <td class="mono" style="font-size:11px">${p.race_date || ''}</td>
+      <td>${p.venue || ''}</td>
+      <td style="text-align:center">${p.race_num || ''}</td>
+      <td style="text-align:center">${wakuCell(p.honmei)}</td>
+      <td style="text-align:center">${wakuCell(p.niban)}</td>
+      <td style="text-align:center">${wakuCell(p.sanban)}</td>
+      <td style="text-align:center">${result}</td>
+      <td style="text-align:center">${hitCell}</td>
+      <td style="text-align:right"><button class="btn-sm" onclick="deleteMyPrediction(${p.id})" style="padding:4px 10px;font-size:11px;background:rgba(255,71,87,.08);border-color:rgba(255,71,87,.30);color:var(--danger)">削除</button></td>
+    </tr>`;
+  }).join('');
+  if (summary) {
+    const judged = preds.filter(p => p.result);
+    const hits = judged.filter(p => p.hit && p.hit !== 'none');
+    const rate = judged.length ? Math.round(hits.length / judged.length * 1000) / 10 : 0;
+    summary.textContent = `${preds.length}件 / 結果登録済 ${judged.length}件 / 何らかの的中 ${hits.length}件 (${rate}%)`;
+  }
+}
+
+async function submitMyPrediction() {
+  const statusEl = document.getElementById('mp-form-status');
+  const btn = document.getElementById('mp-submit-btn');
+  statusEl.textContent = '';
+  const payload = {
+    race_date: document.getElementById('mp-date').value,
+    venue: document.getElementById('mp-venue').value,
+    race_num: document.getElementById('mp-race-num').value,
+    honmei: document.getElementById('mp-honmei').value,
+    niban: document.getElementById('mp-niban').value,
+    sanban: document.getElementById('mp-sanban').value,
+    note: document.getElementById('mp-note').value,
+  };
+  if (!payload.race_date || !payload.venue || !payload.race_num) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = '日付・会場・レース番号を入力してください';
+    return;
+  }
+  if (!payload.honmei || !payload.niban || !payload.sanban) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = '◎○▲をすべて選んでください';
+    return;
+  }
+  btn.disabled = true; btn.textContent = '記録中...';
+  try {
+    const res = await fetch(`${SERVER}/my_predictions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '記録に失敗しました');
+    statusEl.style.color = 'var(--success)';
+    statusEl.textContent = '記録しました';
+    document.getElementById('mp-honmei').value = '';
+    document.getElementById('mp-niban').value = '';
+    document.getElementById('mp-sanban').value = '';
+    document.getElementById('mp-note').value = '';
+    loadMyPredictions();
+  } catch (e) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'この予想を記録する';
+  }
+}
+
+async function deleteMyPrediction(id) {
+  if (!confirm('この予想記録を削除しますか？')) return;
+  try {
+    const res = await fetch(`${SERVER}/my_predictions/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '削除に失敗しました');
+    loadMyPredictions();
+  } catch (e) {
+    alert('削除失敗: ' + e.message);
+  }
 }
 
 function showBulk() {
