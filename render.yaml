@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: boatrace-ai
+    name: boatrace-community
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python3 server.py
