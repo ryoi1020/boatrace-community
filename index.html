@@ -374,7 +374,8 @@ input[type=date]{color-scheme:dark}
   transition:all .25s cubic-bezier(0.22,1,0.36,1);
 }
 .btn-sm:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22);transform:translateY(-1px)}
-.today-tab.active{
+.today-tab.active,
+.rank-tab.active{
   background:linear-gradient(180deg,#0a84ff 0%,#0071e3 100%);
   color:#fff;
   border-color:transparent;
@@ -1008,6 +1009,7 @@ body.guest .auth-locked-note{display:block}
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
       <button class="dash-btn" onclick="showBulk()">今日のS級</button>
       <button class="dash-btn" onclick="showDashboard()">成績を見る</button>
+      <button class="dash-btn" onclick="showRanking()">ランキング</button>
       <button class="dash-btn" id="my-pred-btn" onclick="showMyPredictions()" style="display:none">予想記録</button>
       <span id="auth-username-tag" class="auth-username" style="display:none"></span>
       <button class="dash-btn" id="auth-login-btn" onclick="openAuthModal('login')">ログイン</button>
@@ -1175,6 +1177,44 @@ body.guest .auth-locked-note{display:block}
       </table>
     </div>
     <div id="mp-summary" style="padding:0 14px 14px;font-size:12px;color:var(--mute)"></div>
+  </div>
+</div>
+
+<!-- ============== ランキング (Phase3) ============== -->
+<div class="panel" id="panel-ranking">
+  <div class="dash-head">
+    <div class="dash-title"><span class="accent">ランキング</span> / コミュニティ</div>
+    <button class="btn-sm" onclick="showInput()">← 予想に戻る</button>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head success">的中率ランキング</div>
+    <div style="padding:14px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn-sm rank-tab active" data-period="week" onclick="loadRanking('week')" style="padding:6px 14px;font-size:12px">週間</button>
+        <button class="btn-sm rank-tab" data-period="month" onclick="loadRanking('month')" style="padding:6px 14px;font-size:12px">月間</button>
+        <button class="btn-sm rank-tab" data-period="users" onclick="loadRanking('users')" style="padding:6px 14px;font-size:12px">全ユーザー</button>
+      </div>
+      <div id="rank-summary" style="font-size:11px;color:var(--mute);margin-bottom:8px"></div>
+      <div style="overflow-x:auto">
+        <table class="dash-table" id="rank-table">
+          <thead>
+            <tr>
+              <th style="text-align:center;width:46px">順位</th>
+              <th>ユーザー</th>
+              <th style="text-align:center">予想数</th>
+              <th style="text-align:center">的中</th>
+              <th style="text-align:center">的中率</th>
+              <th style="text-align:center">3連単</th>
+            </tr>
+          </thead>
+          <tbody id="rank-tbody">
+            <tr><td colspan="6" style="text-align:center;color:var(--mute);padding:18px">読み込み中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="rank-note" style="margin-top:10px;font-size:11px;color:var(--mute)"></div>
+    </div>
   </div>
 </div>
 
@@ -2052,6 +2092,72 @@ async function deleteMyPrediction(id) {
   } catch (e) {
     alert('削除失敗: ' + e.message);
   }
+}
+
+function showRanking() {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-ranking').classList.add('active');
+  loadRanking('week');
+  refreshReveal();
+}
+
+let currentRankPeriod = 'week';
+async function loadRanking(period) {
+  currentRankPeriod = period || 'week';
+  document.querySelectorAll('.rank-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.period === currentRankPeriod);
+  });
+  const tbody = document.getElementById('rank-tbody');
+  const summary = document.getElementById('rank-summary');
+  const note = document.getElementById('rank-note');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--mute);padding:18px">読み込み中...</td></tr>';
+  summary.textContent = '';
+  try {
+    if (currentRankPeriod === 'users') {
+      const res = await fetch(`${SERVER}/users`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      renderRanking(data.users || [], { isUsers: true });
+      summary.textContent = `全ユーザー: ${(data.users || []).length}人`;
+      note.textContent = '※ 結果が登録されていない予想は集計に含まれません';
+    } else {
+      const res = await fetch(`${SERVER}/ranking?period=${currentRankPeriod}`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      renderRanking(data.ranking || [], { isUsers: false });
+      summary.textContent = `${data.label}: ${data.start_date} 〜 ${data.end_date}（${(data.ranking||[]).length}人を表示）`;
+      note.textContent = `※ 期間内に結果登録された予想が ${data.min_judged} 件以上のユーザーのみランキングに表示`;
+    }
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--danger);padding:18px">読み込み失敗: ${e.message}</td></tr>`;
+  }
+}
+
+function renderRanking(rows, opts) {
+  const tbody = document.getElementById('rank-tbody');
+  if (!rows.length) {
+    const msg = opts.isUsers ? 'ユーザーがいません' : '集計対象のユーザーがまだいません';
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--mute);padding:20px">${msg}</td></tr>`;
+    return;
+  }
+  const me = currentUser && currentUser.id;
+  tbody.innerHTML = rows.map((r, i) => {
+    const isMe = me && r.user_id === me;
+    const rankBadge = i < 3 && !opts.isUsers
+      ? `<span style="color:${['#ffd60a','#d2d2d7','#cd7f32'][i]};font-weight:700">${i+1}</span>`
+      : `<span style="color:var(--mute)">${i+1}</span>`;
+    const rate = (r.hit_rate != null) ? r.hit_rate : 0;
+    const sanrenTan = r.sanren_tan != null ? r.sanren_tan : '—';
+    const name = (r.username || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    return `<tr${isMe ? ' style="background:rgba(0,113,227,.08)"' : ''}>
+      <td style="text-align:center">${rankBadge}</td>
+      <td>${name}${isMe ? ' <span style="font-size:10px;color:var(--cyan)">(あなた)</span>' : ''}</td>
+      <td style="text-align:center" class="mono">${r.judged != null ? r.judged : 0}</td>
+      <td style="text-align:center" class="mono">${r.hits != null ? r.hits : 0}</td>
+      <td style="text-align:center;font-weight:600;color:${rate >= 50 ? 'var(--gold)' : rate >= 20 ? 'var(--cyan)' : 'var(--mute)'}">${rate}%</td>
+      <td style="text-align:center" class="mono">${sanrenTan}</td>
+    </tr>`;
+  }).join('');
 }
 
 function showBulk() {

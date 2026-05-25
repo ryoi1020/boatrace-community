@@ -417,6 +417,115 @@ def list_user_predictions(user_id, limit=100):
     return out
 
 
+def get_ranking(period: str, limit: int = 20, min_judged: int = 3):
+    """期間内の的中率ランキングを返す。
+    period: 'week' (直近7日) | 'month' (直近30日)
+    最小判定数 min_judged 未満のユーザーは除外し、的中率の僅差は的中数で順位付け。"""
+    today = date.today()
+    if period == "week":
+        start = today - timedelta(days=6)   # 今日を含めて7日
+        label = "週間"
+    elif period == "month":
+        start = today - timedelta(days=29)  # 今日を含めて30日
+        label = "月間"
+    else:
+        start = today - timedelta(days=29)
+        label = "月間"
+    start_iso = start.isoformat()
+
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            """SELECT u.id, u.username,
+                      up.honmei_num, up.niban_num, up.sanban_num,
+                      r.first, r.second, r.third
+               FROM users u
+               JOIN user_predictions up ON up.user_id = u.id
+               JOIN results r
+                 ON r.race_date = up.race_date
+                AND r.venue     = up.venue
+                AND r.race_num  = up.race_num
+               WHERE up.race_date >= ?""",
+            (start_iso,),
+        )
+        rows = cur.fetchall()
+
+    stats = {}
+    for uid, username, h, o, s, f1, f2, f3 in rows:
+        hit = _judge_user_prediction(h, o, s, f1, f2, f3)
+        st = stats.setdefault(uid, {
+            "user_id": uid, "username": username,
+            "judged": 0, "hits": 0,
+            "sanren_tan": 0, "sanren_fuku": 0,
+            "niren_tan": 0, "niren_fuku": 0, "tan": 0,
+        })
+        st["judged"] += 1
+        if hit and hit != "none":
+            st["hits"] += 1
+            st[hit] = st.get(hit, 0) + 1
+
+    items = []
+    for st in stats.values():
+        if st["judged"] < min_judged:
+            continue
+        st["hit_rate"] = round(st["hits"] / st["judged"] * 1000) / 10
+        items.append(st)
+    items.sort(key=lambda x: (-x["hit_rate"], -x["hits"], -x["judged"]))
+    return {
+        "period": period,
+        "label": label,
+        "start_date": start_iso,
+        "end_date": today.isoformat(),
+        "min_judged": min_judged,
+        "ranking": items[:limit],
+    }
+
+
+def list_users_with_stats(limit: int = 100):
+    """全ユーザーと累計サマリー (全期間)"""
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            """SELECT u.id, u.username, u.created_at,
+                      COUNT(up.id) AS total_preds
+               FROM users u
+               LEFT JOIN user_predictions up ON up.user_id = u.id
+               GROUP BY u.id
+               ORDER BY u.id ASC
+               LIMIT ?""",
+            (limit,),
+        )
+        users = [{"id": r[0], "username": r[1], "created_at": r[2], "total_predictions": r[3]} for r in cur.fetchall()]
+
+        cur.execute(
+            """SELECT u.id,
+                      up.honmei_num, up.niban_num, up.sanban_num,
+                      r.first, r.second, r.third
+               FROM users u
+               JOIN user_predictions up ON up.user_id = u.id
+               JOIN results r
+                 ON r.race_date = up.race_date
+                AND r.venue     = up.venue
+                AND r.race_num  = up.race_num"""
+        )
+        agg = {}
+        for uid, h, o, s, f1, f2, f3 in cur.fetchall():
+            hit = _judge_user_prediction(h, o, s, f1, f2, f3)
+            a = agg.setdefault(uid, {"judged": 0, "hits": 0})
+            a["judged"] += 1
+            if hit and hit != "none":
+                a["hits"] += 1
+
+    for u in users:
+        a = agg.get(u["id"], {"judged": 0, "hits": 0})
+        u["judged"] = a["judged"]
+        u["hits"] = a["hits"]
+        u["hit_rate"] = round(a["hits"] / a["judged"] * 1000) / 10 if a["judged"] else 0
+    return users
+
+
 def save_result(race_date, venue, race_num, first, second, third):
     with sqlite3.connect(DB_PATH, timeout=30) as con:
         con.execute("PRAGMA journal_mode=WAL")
@@ -997,6 +1106,18 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 return
             self.send_json(200, {"predictions": list_user_predictions(user["id"])})
+            return
+
+        if parsed.path == "/ranking":
+            qs = parse_qs(parsed.query)
+            period = (qs.get("period", ["week"])[0] or "week").lower()
+            if period not in ("week", "month"):
+                period = "week"
+            self.send_json(200, get_ranking(period))
+            return
+
+        if parsed.path == "/users":
+            self.send_json(200, {"users": list_users_with_stats()})
             return
 
         if parsed.path in ("/", "/index.html"):
