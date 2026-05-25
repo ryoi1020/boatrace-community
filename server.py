@@ -649,6 +649,291 @@ def judge_hit(honmei, niban, sanban, first, second, third):
     return "none"
 
 
+# ===== SNS: 予想投稿 =====
+def create_public_prediction(user_id, race_date, venue, race_num, honmei, niban, sanban, comment=""):
+    """戻り値: (id, error)"""
+    try:
+        honmei = int(honmei); niban = int(niban); sanban = int(sanban)
+    except (TypeError, ValueError):
+        return None, "◎○▲ は数値で指定してください"
+    for n in (honmei, niban, sanban):
+        if n < 1 or n > 6:
+            return None, "◎○▲ は 1〜6 で指定してください"
+    if len({honmei, niban, sanban}) != 3:
+        return None, "◎○▲ は異なる艇番にしてください"
+    race_date = (race_date or "").strip()
+    venue = (venue or "").strip()
+    race_num = (race_num or "").strip()
+    if not race_date or not venue or not race_num:
+        return None, "日付・会場・レース番号は必須です"
+    comment = (comment or "").strip()[:280]
+
+    now = datetime.now().isoformat()
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=NORMAL")
+        cur = con.cursor()
+        # 1ユーザー1レース1投稿
+        cur.execute(
+            "SELECT id FROM predictions_public WHERE user_id=? AND race_date=? AND venue=? AND race_num=?",
+            (user_id, race_date, venue, race_num),
+        )
+        if cur.fetchone():
+            return None, "このレースには既に投稿があります"
+        cur.execute(
+            """INSERT INTO predictions_public
+               (user_id, race_date, venue, race_num,
+                honmei_num, niban_num, sanban_num,
+                comment, posted_at, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (user_id, race_date, venue, race_num, honmei, niban, sanban,
+             comment, now, now),
+        )
+        pid = cur.lastrowid
+        # 既に結果があれば即時判定
+        cur.execute(
+            "SELECT first, second, third FROM results WHERE race_date=? AND venue=? AND race_num=?",
+            (race_date, venue, race_num),
+        )
+        row = cur.fetchone()
+        if row:
+            hit_kind = judge_hit(honmei, niban, sanban, row[0], row[1], row[2])
+            is_hit = 1 if hit_kind and hit_kind != "none" else 0
+            cur.execute(
+                """UPDATE predictions_public
+                   SET result_first=?, result_second=?, result_third=?, is_hit=?, hit_kind=?
+                   WHERE id=?""",
+                (row[0], row[1], row[2], is_hit, hit_kind, pid),
+            )
+    return pid, None
+
+
+def _row_to_public_prediction(row, columns):
+    """rows -> dict, with user_* fields joined from users."""
+    d = {columns[i]: row[i] for i in range(len(columns))}
+    user = {
+        "id": d.pop("u_id"), "username": d.pop("u_username"),
+        "display_name": d.pop("u_display_name"),
+        "avatar_url": d.pop("u_avatar_url"),
+        "is_bot": bool(d.pop("u_is_bot")),
+        "is_premium": bool(d.pop("u_is_premium")),
+    }
+    d["user"] = user
+    return d
+
+
+_PUB_SELECT = """
+    SELECT p.id, p.race_date, p.venue, p.race_num,
+           p.honmei_num, p.niban_num, p.sanban_num,
+           p.comment, p.posted_at,
+           p.result_first, p.result_second, p.result_third,
+           p.is_hit, p.hit_kind,
+           u.id AS u_id, u.username AS u_username,
+           u.display_name AS u_display_name, u.avatar_url AS u_avatar_url,
+           u.is_bot AS u_is_bot, u.is_premium AS u_is_premium
+    FROM predictions_public p
+    JOIN users u ON u.id = p.user_id
+"""
+_PUB_COLUMNS = (
+    "id", "race_date", "venue", "race_num",
+    "honmei_num", "niban_num", "sanban_num",
+    "comment", "posted_at",
+    "result_first", "result_second", "result_third",
+    "is_hit", "hit_kind",
+    "u_id", "u_username", "u_display_name", "u_avatar_url",
+    "u_is_bot", "u_is_premium",
+)
+
+
+def get_timeline(viewer_id=None, limit=50, only_following=False):
+    """タイムライン。viewer_id がフォロー中のユーザー (+自分 + bot) または全公開投稿。"""
+    sql = _PUB_SELECT
+    params = []
+    if only_following and viewer_id:
+        sql += """
+            WHERE p.user_id IN (
+                SELECT following_id FROM follows WHERE follower_id = ?
+            ) OR p.user_id = ? OR u.is_bot = 1"""
+        params.extend([viewer_id, viewer_id])
+    sql += " ORDER BY p.posted_at DESC LIMIT ?"
+    params.append(limit)
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(sql, params)
+        return [_row_to_public_prediction(r, _PUB_COLUMNS) for r in cur.fetchall()]
+
+
+def get_user_predictions(username, limit=100):
+    sql = _PUB_SELECT + " WHERE u.username = ? ORDER BY p.posted_at DESC LIMIT ?"
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(sql, (username, limit))
+        return [_row_to_public_prediction(r, _PUB_COLUMNS) for r in cur.fetchall()]
+
+
+def get_prediction_owner(pred_id):
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT user_id, race_date, venue, race_num FROM predictions_public WHERE id=?",
+            (pred_id,),
+        )
+        row = cur.fetchone()
+    return row  # (user_id, race_date, venue, race_num) or None
+
+
+# ===== SNS: フォロー =====
+def follow_user(follower_id, following_username):
+    if not following_username:
+        return False, "ユーザー名が必要です"
+    target = get_user_by_username(following_username)
+    if not target:
+        return False, "ユーザーが見つかりません"
+    if target["id"] == follower_id:
+        return False, "自分自身はフォローできません"
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            "INSERT OR IGNORE INTO follows (follower_id, following_id, created_at) VALUES (?,?,?)",
+            (follower_id, target["id"], datetime.now().isoformat()),
+        )
+        if cur.rowcount > 0:
+            cur.execute("UPDATE users SET follower_count = follower_count + 1 WHERE id=?", (target["id"],))
+            cur.execute("UPDATE users SET following_count = following_count + 1 WHERE id=?", (follower_id,))
+    return True, None
+
+
+def unfollow_user(follower_id, following_username):
+    target = get_user_by_username(following_username)
+    if not target:
+        return False, "ユーザーが見つかりません"
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(
+            "DELETE FROM follows WHERE follower_id=? AND following_id=?",
+            (follower_id, target["id"]),
+        )
+        if cur.rowcount > 0:
+            cur.execute("UPDATE users SET follower_count = MAX(follower_count - 1, 0) WHERE id=?", (target["id"],))
+            cur.execute("UPDATE users SET following_count = MAX(following_count - 1, 0) WHERE id=?", (follower_id,))
+    return True, None
+
+
+def is_following(follower_id, following_id):
+    if not follower_id or not following_id:
+        return False
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT 1 FROM follows WHERE follower_id=? AND following_id=?",
+            (follower_id, following_id),
+        )
+        return cur.fetchone() is not None
+
+
+# ===== SNS: プロフィール =====
+def get_user_profile(username, viewer_id=None):
+    user = get_user_by_username(username)
+    if not user:
+        return None
+    stats = _user_stats_all_time(user["id"])
+    user["stats"] = stats
+    user["is_following"] = is_following(viewer_id, user["id"]) if viewer_id else False
+    user["is_self"] = viewer_id == user["id"] if viewer_id else False
+    return user
+
+
+def _user_stats_all_time(user_id):
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        cur = con.cursor()
+        cur.execute(
+            """SELECT COUNT(*) AS posts,
+                      SUM(CASE WHEN is_hit IS NOT NULL THEN 1 ELSE 0 END) AS judged,
+                      SUM(CASE WHEN is_hit = 1 THEN 1 ELSE 0 END) AS hits,
+                      SUM(CASE WHEN hit_kind = 'sanren_tan' THEN 1 ELSE 0 END) AS sanren_tan
+               FROM predictions_public WHERE user_id = ?""",
+            (user_id,),
+        )
+        r = cur.fetchone() or (0, 0, 0, 0)
+    posts = r[0] or 0
+    judged = r[1] or 0
+    hits = r[2] or 0
+    sanren_tan = r[3] or 0
+    return {
+        "posts": posts,
+        "judged": judged,
+        "hits": hits,
+        "sanren_tan": sanren_tan,
+        "hit_rate": round(hits / judged * 1000) / 10 if judged else 0,
+    }
+
+
+# ===== SNS: ランキング =====
+def get_ranking(period: str, limit: int = 50, min_judged: int = 3):
+    """period: 'weekly' | 'monthly' | 'all'"""
+    today = date.today()
+    if period == "weekly":
+        start = today - timedelta(days=6)
+        label = "週間"
+    elif period == "monthly":
+        start = today - timedelta(days=29)
+        label = "月間"
+    else:
+        period = "all"
+        start = None
+        label = "全期間"
+
+    sql = """
+        SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_bot, u.is_premium,
+               COUNT(p.id) AS judged,
+               SUM(CASE WHEN p.is_hit = 1 THEN 1 ELSE 0 END) AS hits,
+               SUM(CASE WHEN p.hit_kind = 'sanren_tan' THEN 1 ELSE 0 END) AS sanren_tan
+        FROM users u
+        JOIN predictions_public p ON p.user_id = u.id
+        WHERE p.is_hit IS NOT NULL
+    """
+    params = []
+    if start:
+        sql += " AND p.race_date >= ?"
+        params.append(start.isoformat())
+    sql += " GROUP BY u.id"
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        cur = con.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+    items = []
+    for r in rows:
+        judged = r[6] or 0
+        hits = r[7] or 0
+        if judged < min_judged:
+            continue
+        items.append({
+            "user": {
+                "id": r[0], "username": r[1], "display_name": r[2],
+                "avatar_url": r[3], "is_bot": bool(r[4]), "is_premium": bool(r[5]),
+            },
+            "judged": judged,
+            "hits": hits,
+            "sanren_tan": r[8] or 0,
+            "hit_rate": round(hits / judged * 1000) / 10 if judged else 0,
+        })
+    items.sort(key=lambda x: (-x["hit_rate"], -x["hits"], -x["judged"]))
+    return {
+        "period": period,
+        "label": label,
+        "start_date": start.isoformat() if start else None,
+        "end_date": today.isoformat(),
+        "min_judged": min_judged,
+        "ranking": items[:limit],
+    }
+
+
 def save_result(race_date, venue, race_num, first, second, third):
     with sqlite3.connect(DB_PATH, timeout=30) as con:
         con.execute("PRAGMA journal_mode=WAL")
@@ -1214,7 +1499,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
@@ -1311,6 +1596,45 @@ class Handler(BaseHTTPRequestHandler):
 </script>
 ログイン処理中..."""
             self._send_html(200, html)
+            return
+
+        # ===== SNS GET エンドポイント =====
+        if parsed.path == "/predictions/timeline":
+            viewer = get_user_by_token(extract_token(self.headers))
+            qs = parse_qs(parsed.query)
+            mode = (qs.get("mode") or ["all"])[0].lower()  # 'all' | 'following'
+            only_following = (mode == "following") and viewer is not None
+            limit = int((qs.get("limit") or ["50"])[0] or 50)
+            limit = max(1, min(limit, 200))
+            items = get_timeline(viewer["id"] if viewer else None, limit=limit, only_following=only_following)
+            self.send_json(200, {"predictions": items, "mode": mode})
+            return
+
+        if parsed.path.startswith("/predictions/user/"):
+            username = parsed.path[len("/predictions/user/"):]
+            if not username:
+                self.send_json(400, {"error": "ユーザー名が必要です"})
+                return
+            items = get_user_predictions(username)
+            self.send_json(200, {"predictions": items})
+            return
+
+        if parsed.path.startswith("/users/"):
+            username = parsed.path[len("/users/"):]
+            if not username:
+                self.send_json(400, {"error": "ユーザー名が必要です"})
+                return
+            viewer = get_user_by_token(extract_token(self.headers))
+            profile = get_user_profile(username, viewer_id=viewer["id"] if viewer else None)
+            if not profile:
+                self.send_json(404, {"error": "ユーザーが見つかりません"})
+                return
+            self.send_json(200, {"user": profile})
+            return
+
+        if parsed.path in ("/ranking/weekly", "/ranking/monthly", "/ranking/all"):
+            period = parsed.path.split("/")[-1]
+            self.send_json(200, get_ranking(period))
             return
 
         if parsed.path in ("/", "/index.html"):
@@ -1490,7 +1814,7 @@ class Handler(BaseHTTPRequestHandler):
             "/bulk_predict", "/bulk_cancel",
             "/venue_predict", "/venue_cancel",
         }
-        AUTH_REQUIRED_POSTS = {"/result"}
+        AUTH_REQUIRED_POSTS = {"/result", "/predictions"}
         user = None
         if parsed.path in PREMIUM_REQUIRED_POSTS:
             user = self._require_premium()
@@ -1500,6 +1824,72 @@ class Handler(BaseHTTPRequestHandler):
             user = self._require_user()
             if user is None:
                 return
+        elif parsed.path.startswith("/follow/") or (
+            parsed.path.startswith("/predictions/") and parsed.path.endswith("/result")
+        ):
+            user = self._require_user()
+            if user is None:
+                return
+
+        # ===== SNS POST =====
+        if parsed.path == "/predictions":
+            try:
+                data = json.loads(body) if body else {}
+            except Exception:
+                self.send_json(400, {"error": "JSONが不正です"})
+                return
+            pid, err = create_public_prediction(
+                user["id"],
+                data.get("race_date"),
+                data.get("venue"),
+                data.get("race_num"),
+                data.get("honmei"),
+                data.get("niban"),
+                data.get("sanban"),
+                data.get("comment", ""),
+            )
+            if err:
+                self.send_json(400, {"error": err})
+                return
+            self.send_json(200, {"ok": True, "id": pid})
+            return
+
+        if parsed.path.startswith("/predictions/") and parsed.path.endswith("/result"):
+            pid_str = parsed.path[len("/predictions/"):-len("/result")]
+            try:
+                pid = int(pid_str)
+            except ValueError:
+                self.send_json(400, {"error": "予想IDが不正です"})
+                return
+            owner = get_prediction_owner(pid)
+            if not owner:
+                self.send_json(404, {"error": "予想が見つかりません"})
+                return
+            try:
+                data = json.loads(body) if body else {}
+                first = int(data.get("first"))
+                second = int(data.get("second"))
+                third = int(data.get("third"))
+            except Exception:
+                self.send_json(400, {"error": "first/second/third を数値で送ってください"})
+                return
+            for n in (first, second, third):
+                if n < 1 or n > 6:
+                    self.send_json(400, {"error": "結果は 1〜6 で指定してください"})
+                    return
+            _, race_date, venue, race_num = owner
+            save_result(race_date, venue, race_num, first, second, third)
+            self.send_json(200, {"ok": True})
+            return
+
+        if parsed.path.startswith("/follow/"):
+            username = parsed.path[len("/follow/"):]
+            ok, err = follow_user(user["id"], username)
+            if not ok:
+                self.send_json(400, {"error": err or "フォローに失敗しました"})
+                return
+            self.send_json(200, {"ok": True})
+            return
 
         # /bulk_predict : バックグラウンド起動、即座に応答を返す
         if parsed.path == "/bulk_predict":
@@ -1724,6 +2114,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(500, {"error": str(e)})
             return
 
+        self.send_json(404, {"error": "Not found"})
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/follow/"):
+            user = self._require_user()
+            if user is None:
+                return
+            username = parsed.path[len("/follow/"):]
+            ok, err = unfollow_user(user["id"], username)
+            if not ok:
+                self.send_json(400, {"error": err or "解除に失敗しました"})
+                return
+            self.send_json(200, {"ok": True})
+            return
         self.send_json(404, {"error": "Not found"})
 
 
