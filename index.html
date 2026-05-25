@@ -9,16 +9,24 @@
 *{box-sizing:border-box;margin:0;padding:0}
 
 :root{
-  --bg:#000;
-  --surface:#16181c;
-  --surface-2:#1e2024;
-  --border:#2f3336;
-  --border-strong:#3a3f44;
-  --text:#e7e9ea;
-  --text-muted:#71767b;
+  --bg:#05080f;
+  --surface:#0f1620;
+  --surface-2:#161e2a;
+  --border:#1f2a3a;
+  --border-strong:#2c3a4f;
+  --text:#e7eef7;
+  --text-muted:#7b8696;
   --accent:#1d9bf0;
   --accent-2:#1a8cd8;
   --accent-soft:rgba(29,155,240,.10);
+  /* Boatrace palette */
+  --water-deep:#062d4b;
+  --water:#0d4f7a;
+  --water-2:#0f6aa3;
+  --water-foam:#7dd3fc;
+  --wake:rgba(125,211,252,.18);
+  --lane-orange:#ff6a00;
+  --lane-orange-soft:rgba(255,106,0,.10);
   --gold:#ffd400;
   --silver:#c0c0c0;
   --bronze:#cd7f32;
@@ -27,6 +35,8 @@
   --miss:#5a5e63;
   --danger:#f4212e;
   --premium:#ffd400;
+  /* Hero background — replace this URL to swap the landing photo */
+  --hero-photo: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'/>");
 }
 
 html,body{background:var(--bg);color:var(--text)}
@@ -62,10 +72,11 @@ button{background:none;border:none;cursor:pointer;color:inherit}
   display:flex;align-items:center;gap:8px;
 }
 .logo-mark{
-  width:32px;height:32px;border-radius:50%;
+  width:32px;height:32px;border-radius:10px;
   display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent) 0%,#0a66c2 100%);
+  background:linear-gradient(135deg,var(--water-2) 0%,var(--water-deep) 100%);
   color:#fff;font-weight:800;font-size:16px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15), 0 4px 12px rgba(13,79,122,.4);
 }
 .logo-text{font-size:18px}
 .topbar-nav{display:none;gap:4px}
@@ -389,6 +400,154 @@ button{background:none;border:none;cursor:pointer;color:inherit}
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(-6px)}
 
+/* ===== Boatrace decorations ===== */
+body::before{
+  content:"";
+  position:fixed;inset:0;
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(13,79,122,.32) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 30% at 80% 100%, rgba(125,211,252,.10) 0%, transparent 60%);
+  pointer-events:none;z-index:0;
+}
+.main{position:relative;z-index:1;background:rgba(5,8,15,.85)}
+
+/* Animated waves */
+.waves{
+  position:absolute;left:0;right:0;bottom:-1px;height:80px;overflow:hidden;
+  pointer-events:none;
+}
+.waves svg{
+  position:absolute;left:0;bottom:0;
+  width:220%;height:100%;
+}
+.waves .w1 path{fill:rgba(125,211,252,.10)}
+.waves .w2 path{fill:rgba(29,155,240,.18)}
+.waves .w3 path{fill:#05080f}
+.waves .w1{animation:waveMove 14s linear infinite}
+.waves .w2{animation:waveMove 20s linear infinite reverse}
+.waves .w3{animation:waveMove 28s linear infinite}
+@keyframes waveMove{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* Lane / course illustration */
+.lanes{
+  position:relative;height:140px;border-radius:14px;overflow:hidden;
+  background:
+    linear-gradient(180deg, #0d4f7a 0%, #062d4b 100%);
+  box-shadow:inset 0 0 0 1px rgba(125,211,252,.15);
+}
+.lanes::before{
+  content:"";position:absolute;inset:0;
+  background:
+    repeating-linear-gradient(180deg,
+      transparent 0,
+      transparent calc(100%/6 - 1px),
+      rgba(125,211,252,.20) calc(100%/6 - 1px),
+      rgba(125,211,252,.20) calc(100%/6));
+}
+.lanes::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:50px;
+  background:
+    radial-gradient(ellipse 80% 100% at 50% 100%, rgba(125,211,252,.18) 0%, transparent 70%);
+  filter:blur(3px);
+}
+.lane-boat{
+  position:absolute;left:14px;display:flex;align-items:center;gap:10px;
+  color:#e7eef7;font-weight:700;font-size:13px;
+  text-shadow:0 1px 2px rgba(0,0,0,.6);
+}
+.lane-boat svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+
+/* Boat SVG sizes */
+.boat-icon{width:30px;height:18px;display:inline-block;vertical-align:middle}
+.boat-icon-lg{width:64px;height:38px}
+
+/* Hero landing */
+.hero-wrap{
+  position:relative;overflow:hidden;
+  border-bottom:1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(5,8,15,.65) 0%, rgba(5,8,15,.96) 95%),
+    var(--hero-photo) center/cover no-repeat,
+    linear-gradient(135deg, var(--water-deep) 0%, #021423 100%);
+}
+.hero{padding:54px 24px 100px;text-align:center;position:relative;z-index:2}
+.hero-eyebrow{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 14px;border-radius:999px;
+  background:rgba(125,211,252,.10);
+  border:1px solid rgba(125,211,252,.30);
+  color:var(--water-foam);font-size:12px;font-weight:600;letter-spacing:.05em;
+  margin-bottom:18px;
+}
+.hero h1{
+  font-size:36px;font-weight:800;letter-spacing:-.02em;
+  margin-bottom:14px;line-height:1.15;
+}
+.hero h1 .accent{
+  background:linear-gradient(135deg, #7dd3fc 0%, #1d9bf0 60%, #ff6a00 100%);
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.hero p{color:var(--text-muted);margin-bottom:24px;font-size:16px;line-height:1.6}
+.hero-actions{display:flex;flex-direction:column;gap:10px;max-width:280px;margin:0 auto}
+.hero-race{
+  margin-top:32px;display:flex;justify-content:center;gap:20px;flex-wrap:wrap;
+  align-items:center;color:rgba(231,238,247,.7);font-size:12px;
+}
+.hero-race svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.5))}
+
+/* Profile cover (boatrace water) */
+.profile-cover{
+  height:140px;position:relative;overflow:hidden;
+  background:
+    linear-gradient(180deg, #0d4f7a 0%, #062d4b 100%);
+}
+.profile-cover::before{
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(125,211,252,.25), transparent 60%),
+    radial-gradient(circle at 80% 60%, rgba(255,106,0,.10), transparent 50%);
+}
+
+/* Decorative section header with wave */
+.section-with-wave{
+  position:relative;padding:14px 16px;
+  font-size:14px;font-weight:700;color:var(--text);
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(180deg, rgba(13,79,122,.18), transparent);
+}
+.section-with-wave::before{
+  content:"";display:inline-block;width:18px;height:10px;
+  background:linear-gradient(90deg, transparent, var(--water-foam), transparent);
+  margin-right:8px;border-radius:2px;opacity:.7;vertical-align:middle;
+}
+
+/* Pick boat icon (inside post) */
+.pick-boat-wrap{display:inline-flex;align-items:center;gap:5px}
+
+/* Bot identity badge override */
+.bot-badge.wave{
+  background:linear-gradient(90deg, rgba(125,211,252,.20), rgba(29,155,240,.20));
+  color:var(--water-foam);
+  border:1px solid rgba(125,211,252,.30);
+}
+
+/* Premium banner accent */
+.premium-strip{
+  background:linear-gradient(90deg, rgba(255,212,0,.12), rgba(255,106,0,.10));
+  border:1px solid rgba(255,212,0,.25);
+  padding:10px 14px;border-radius:10px;
+  font-size:13px;color:#ffe066;
+  display:flex;align-items:center;gap:8px;margin-bottom:14px;
+}
+
+/* Splash on action */
+@keyframes splash{
+  0%{box-shadow:0 0 0 0 rgba(125,211,252,.45)}
+  100%{box-shadow:0 0 0 22px rgba(125,211,252,0)}
+}
+.fab{animation:splash 2.6s ease-out infinite}
+
 /* ===== Responsive ===== */
 @media (min-width:768px){
   .topbar-nav{display:flex}
@@ -409,7 +568,13 @@ button{background:none;border:none;cursor:pointer;color:inherit}
 <header class="topbar">
   <div class="topbar-inner">
     <a href="#/" class="logo">
-      <span class="logo-mark">艇</span>
+      <span class="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
+          <path d="M3 21 Q5 14 12 14 H22 Q27 14 29 21 Q22 26 16 26 Q9 26 3 21 Z" fill="#fff"/>
+          <path d="M14 14 V8 H22 V14" fill="#fff" opacity=".85"/>
+          <path d="M2 24 Q8 26 16 24 T30 24" stroke="#7dd3fc" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+        </svg>
+      </span>
       <span class="logo-text">BoatSNS</span>
     </a>
     <nav class="topbar-nav">
@@ -693,7 +858,45 @@ function avatarHtml(user, size){
   if (user && user.avatar_url) {
     return `<div class="${cls}"><img src="${escapeHtml(user.avatar_url)}" alt=""></div>`;
   }
+  if (user && user.is_bot) {
+    return `<div class="${cls}" style="background:linear-gradient(135deg,#062d4b,#1d9bf0);">
+      <svg viewBox="0 0 40 40" width="60%" height="60%" fill="none">
+        <path d="M5 28 Q12 23 20 28 T35 28" stroke="#7dd3fc" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M5 22 Q12 17 20 22 T35 22" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".7"/>
+        <circle cx="20" cy="14" r="3" fill="#fff"/>
+      </svg>
+    </div>`;
+  }
   return `<div class="${cls}">${escapeHtml(initials(user && (user.display_name || user.username)))}</div>`;
+}
+
+function boatSvg(num, big){
+  const lane = num % 6 === 0 ? 6 : num;
+  const colors = {
+    1: ["#ffffff", "#cbd5e1"], 2: ["#1a1a1a", "#444"],
+    3: ["#e63946", "#a31525"], 4: ["#2255cc", "#0a3a92"],
+    5: ["#ffd400", "#b88a00"], 6: ["#22c55e", "#0f8a3b"],
+  }[lane] || ["#7b8696", "#5a5e63"];
+  const cls = big ? "boat-icon boat-icon-lg" : "boat-icon";
+  return `<svg class="${cls}" viewBox="0 0 60 36" aria-hidden="true">
+    <defs>
+      <linearGradient id="b${lane}-${big?'l':'s'}" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0" stop-color="${colors[0]}"/>
+        <stop offset="1" stop-color="${colors[1]}"/>
+      </linearGradient>
+    </defs>
+    <path d="M2 22 Q4 14 14 14 H42 Q54 14 58 22 Q44 30 30 30 Q14 30 2 22 Z" fill="url(#b${lane}-${big?'l':'s'})" stroke="rgba(0,0,0,.5)" stroke-width=".5"/>
+    <path d="M22 14 V8 H40 V14" fill="${colors[1]}" stroke="rgba(0,0,0,.4)" stroke-width=".5"/>
+    <text x="31" y="13" text-anchor="middle" font-size="7" font-weight="800" fill="${lane===1||lane===5?'#000':'#fff'}">${lane}</text>
+  </svg>`;
+}
+
+function wavesSvg(){
+  return `<div class="waves" aria-hidden="true">
+    <svg class="w1" viewBox="0 0 2880 100" preserveAspectRatio="none"><path d="M0,60 C240,90 480,30 720,60 C960,90 1200,30 1440,60 L1440,100 L0,100 Z M1440,60 C1680,90 1920,30 2160,60 C2400,90 2640,30 2880,60 L2880,100 L1440,100 Z"/></svg>
+    <svg class="w2" viewBox="0 0 2880 100" preserveAspectRatio="none"><path d="M0,70 C240,40 480,90 720,55 C960,90 1200,40 1440,70 L1440,100 L0,100 Z M1440,70 C1680,40 1920,90 2160,55 C2400,90 2640,40 2880,70 L2880,100 L1440,100 Z"/></svg>
+    <svg class="w3" viewBox="0 0 2880 100" preserveAspectRatio="none"><path d="M0,80 C240,60 480,98 720,70 C960,98 1200,60 1440,80 L1440,100 L0,100 Z M1440,80 C1680,60 1920,98 2160,70 C2400,98 2640,60 2880,80 L2880,100 L1440,100 Z"/></svg>
+  </div>`;
 }
 
 function userHandle(user){
@@ -734,7 +937,7 @@ function postHtml(p){
       <div class="post-head">
         <a class="post-name" href="#/profile/${encodeURIComponent(u.username)}" onclick="event.stopPropagation()">${escapeHtml(u.display_name || u.username)}</a>
         ${u.is_premium && !isBot ? '<span class="premium-badge" title="プレミアム">★</span>' : ''}
-        ${isBot ? '<span class="bot-badge">BOT</span>' : ''}
+        ${isBot ? '<span class="bot-badge wave">🌊 ORACLE</span>' : ''}
         <span class="post-handle">${userHandle(u)}</span>
         <span class="post-handle">·</span>
         <span class="post-time">${formatTime(p.posted_at)}</span>
@@ -943,17 +1146,24 @@ function renderHome(app){
 
 async function renderLanding(app){
   app.innerHTML = `
-    <section class="hero">
-      <h1>波を読む者たちの<br>ボートレース SNS</h1>
-      <p>◎○▲ で予想を投稿。週間ランキングで腕前を競い、AI「WAVE ORACLE 🤖」と戦おう。</p>
-      <div class="hero-actions">
-        <button class="btn btn-primary btn-block" onclick="openAuth('register')">アカウント作成</button>
-        <button class="btn btn-outline btn-block" onclick="openAuth('login')">ログイン</button>
-      </div>
-    </section>
-    <div class="page-header" style="position:static">今週の上位</div>
+    <div class="hero-wrap">
+      <section class="hero">
+        <span class="hero-eyebrow">⚓ BOATRACE SNS</span>
+        <h1>波を読む者たちの<br><span class="accent">ボートレース予想 SNS</span></h1>
+        <p>◎○▲ で予想を投稿。週間ランキングで腕前を競い、<br>AI「WAVE ORACLE」と戦おう。</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary btn-block" onclick="openAuth('register')">アカウント作成</button>
+          <button class="btn btn-outline btn-block" onclick="openAuth('login')">ログイン</button>
+        </div>
+        <div class="hero-race">
+          ${[1,2,3,4,5,6].map(n => boatSvg(n)).join("")}
+        </div>
+      </section>
+      ${wavesSvg()}
+    </div>
+    <div class="section-with-wave">今週の上位</div>
     <div id="landing-rank"><div class="empty">読み込み中...</div></div>
-    <div class="page-header" style="position:static">最新の投稿</div>
+    <div class="section-with-wave">最新の投稿</div>
     <div id="landing-feed"><div class="empty">読み込み中...</div></div>
   `;
   try {
@@ -1255,7 +1465,18 @@ async function renderAI(app){
   app.innerHTML = `
     <div class="page-header">AI予想</div>
     <div class="page-section">
-      <div class="field-row">
+      <div class="premium-strip">
+        <span style="font-weight:800">★ PREMIUM</span>
+        <span>WAVE ORACLE があなたのために予想を生成します</span>
+      </div>
+      <div class="lanes" aria-hidden="true">
+        ${[1,2,3,4,5,6].map(n => `
+          <div class="lane-boat" style="top:${(n-1)*(140/6) + 4}px">
+            ${boatSvg(n)}
+            <span class="mono">${n}号艇</span>
+          </div>`).join("")}
+      </div>
+      <div class="field-row" style="margin-top:14px">
         <div class="field">
           <label>日付</label>
           <input type="date" id="ai-date">
@@ -1372,10 +1593,20 @@ function openComposeFromAI(data){
 function renderUpgrade(app){
   app.innerHTML = `
     <div class="page-header">プレミアムプラン</div>
-    <div class="ai-locked">
-      <h3>★ Boat SNS プレミアム ★</h3>
-      <p>AI「WAVE ORACLE」を自分の予想に使えます。月額プランは現在準備中です。</p>
-      <button class="btn btn-outline" onclick="nav('/')">戻る</button>
+    <div class="hero-wrap" style="border-radius:0">
+      <div class="hero" style="padding:40px 24px 80px">
+        <span class="hero-eyebrow">★ PREMIUM</span>
+        <h1 style="font-size:28px"><span class="accent">WAVE ORACLE</span> を味方に</h1>
+        <p>展示タイム・ST・モーター成績を AI が解析。<br>あなたの的中率を底上げします。</p>
+        <div class="hero-race">
+          ${[1,2,3].map(n => boatSvg(n, true)).join("")}
+        </div>
+        <div class="hero-actions" style="margin-top:24px">
+          <button class="btn btn-primary btn-block" disabled>月額プラン (準備中)</button>
+          <button class="btn btn-outline btn-block" onclick="nav('/')">戻る</button>
+        </div>
+      </div>
+      ${wavesSvg()}
     </div>
   `;
 }
