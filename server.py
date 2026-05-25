@@ -79,12 +79,20 @@ def _rnos_for_range(range_filter):
 
 
 # ===== DB初期化 =====
+def _add_column_if_missing(cur, table, column, ddl):
+    cur.execute(f"PRAGMA table_info({table})")
+    cols = {row[1] for row in cur.fetchall()}
+    if column not in cols:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db():
     with sqlite3.connect(DB_PATH, timeout=30) as con:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA synchronous=NORMAL")
         cur = con.cursor()
         cur.executescript("""
+        -- 旧スキーマ (AI予想ログ・既存) は維持する
         CREATE TABLE IF NOT EXISTS predictions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT NOT NULL,
@@ -125,13 +133,26 @@ def init_db():
             payout INTEGER DEFAULT 0,
             FOREIGN KEY(prediction_id) REFERENCES predictions(id)
         );
+
+        -- SNS版スキーマ
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            username TEXT NOT NULL,
+            email TEXT UNIQUE,
+            password_hash TEXT,
+            username TEXT UNIQUE NOT NULL,
+            display_name TEXT,
+            avatar_url TEXT,
+            bio TEXT,
+            is_premium INTEGER NOT NULL DEFAULT 0,
+            is_bot INTEGER NOT NULL DEFAULT 0,
+            google_id TEXT UNIQUE,
+            follower_count INTEGER NOT NULL DEFAULT 0,
+            following_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+        CREATE INDEX IF NOT EXISTS idx_users_google ON users(google_id);
+
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL,
@@ -140,7 +161,18 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-        CREATE TABLE IF NOT EXISTS user_predictions (
+
+        CREATE TABLE IF NOT EXISTS follows (
+            follower_id INTEGER NOT NULL,
+            following_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (follower_id, following_id),
+            FOREIGN KEY (follower_id) REFERENCES users(id),
+            FOREIGN KEY (following_id) REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
+
+        CREATE TABLE IF NOT EXISTS predictions_public (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             race_date TEXT NOT NULL,
@@ -149,20 +181,52 @@ def init_db():
             honmei_num INTEGER NOT NULL,
             niban_num INTEGER NOT NULL,
             sanban_num INTEGER NOT NULL,
-            note TEXT,
+            comment TEXT,
+            posted_at TEXT NOT NULL,
+            result_first INTEGER,
+            result_second INTEGER,
+            result_third INTEGER,
+            is_hit INTEGER,
+            hit_kind TEXT,
             created_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            FOREIGN KEY (user_id) REFERENCES users(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_user_predictions_user_date
-            ON user_predictions(user_id, race_date);
-        CREATE INDEX IF NOT EXISTS idx_user_predictions_race
-            ON user_predictions(race_date, venue, race_num);
+        CREATE INDEX IF NOT EXISTS idx_pubpred_user ON predictions_public(user_id, posted_at);
+        CREATE INDEX IF NOT EXISTS idx_pubpred_race ON predictions_public(race_date, venue, race_num);
+        CREATE INDEX IF NOT EXISTS idx_pubpred_recent ON predictions_public(posted_at);
+
+        -- 旧Phase2テーブルは廃止 (clean start)
+        DROP TABLE IF EXISTS user_predictions;
         """)
+
+        # 既存usersテーブルに列を追加 (前バージョンからのアップグレード対応)
+        _add_column_if_missing(cur, "users", "display_name", "display_name TEXT")
+        _add_column_if_missing(cur, "users", "avatar_url", "avatar_url TEXT")
+        _add_column_if_missing(cur, "users", "bio", "bio TEXT")
+        _add_column_if_missing(cur, "users", "is_premium", "is_premium INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(cur, "users", "is_bot", "is_bot INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(cur, "users", "google_id", "google_id TEXT")
+        _add_column_if_missing(cur, "users", "follower_count", "follower_count INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(cur, "users", "following_count", "following_count INTEGER NOT NULL DEFAULT 0")
 
 
 # ===== 認証ヘルパー =====
 SESSION_TTL_DAYS = 30
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+
+# 環境変数
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
+GOOGLE_REDIRECT_URI = os.environ.get(
+    "GOOGLE_REDIRECT_URI", "https://boatrace-community.onrender.com/auth/google/callback"
+)
+
+# OAuth state を一時保持 (Render single-instance 前提)
+OAUTH_STATE_TTL = 600  # 10分
+_oauth_states = {}  # state -> created_at(epoch)
+_oauth_lock = threading.Lock()
 
 
 def hash_password(password: str) -> str:
@@ -173,19 +237,88 @@ def generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def create_user(email: str, password: str, username: str):
-    """戻り値: (user_id, error_message)。成功時は error は None。"""
-    email = (email or "").strip().lower()
-    username = (username or "").strip()
-    password = password or ""
-    if not EMAIL_RE.match(email):
-        return None, "メールアドレスの形式が不正です"
-    if len(password) < 6:
-        return None, "パスワードは6文字以上で入力してください"
-    if not username or len(username) > 32:
-        return None, "ユーザー名は1〜32文字で入力してください"
+def _user_row_to_dict(row, columns):
+    return {c: row[i] for i, c in enumerate(columns)}
 
-    pw_hash = hash_password(password)
+
+USER_COLUMNS = (
+    "id", "email", "username", "display_name", "avatar_url", "bio",
+    "is_premium", "is_bot", "google_id", "follower_count", "following_count", "created_at",
+)
+
+
+def _select_user(cur, where_clause, params):
+    cols = ", ".join(USER_COLUMNS)
+    cur.execute(f"SELECT {cols} FROM users WHERE {where_clause}", params)
+    row = cur.fetchone()
+    if not row:
+        return None
+    u = _user_row_to_dict(row, USER_COLUMNS)
+    u["is_premium"] = bool(u["is_premium"])
+    u["is_bot"] = bool(u["is_bot"])
+    return u
+
+
+def get_user_by_id(user_id):
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        return _select_user(con.cursor(), "id = ?", (user_id,))
+
+
+def get_user_by_username(username):
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        return _select_user(con.cursor(), "username = ?", (username,))
+
+
+def get_user_by_google_id(google_id):
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        return _select_user(con.cursor(), "google_id = ?", (google_id,))
+
+
+def get_user_by_email(email):
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        return _select_user(con.cursor(), "email = ?", ((email or "").strip().lower(),))
+
+
+def _allocate_username(base):
+    """username の重複を避けて使えるものを返す"""
+    base = re.sub(r"[^a-zA-Z0-9_]", "_", (base or "user")).strip("_") or "user"
+    base = base[:16]
+    candidate = base
+    suffix = 0
+    while get_user_by_username(candidate):
+        suffix += 1
+        candidate = f"{base}_{suffix}"
+        if suffix > 9999:
+            candidate = f"user_{secrets.token_hex(4)}"
+            break
+    return candidate
+
+
+def create_user(*, email=None, password=None, username=None, display_name=None,
+                google_id=None, avatar_url=None, is_bot=False, is_premium=False):
+    """戻り値: (user_id, error_message)。SNS仕様の new ユーザー作成。"""
+    email_clean = (email or "").strip().lower() or None
+    username_clean = (username or "").strip()
+    display_clean = (display_name or username_clean or "").strip() or username_clean
+    avatar_clean = (avatar_url or "").strip() or None
+
+    if email_clean and not EMAIL_RE.match(email_clean):
+        return None, "メールアドレスの形式が不正です"
+    if password is not None:
+        if len(password) < 6:
+            return None, "パスワードは6文字以上で入力してください"
+    if not username_clean:
+        return None, "ユーザー名は必須です"
+    if not USERNAME_RE.match(username_clean):
+        return None, "ユーザー名は半角英数字とアンダースコア、3〜20文字で入力してください"
+    if len(display_clean) > 50:
+        return None, "表示名は50文字以内にしてください"
+
+    pw_hash = hash_password(password) if password else None
     created = datetime.now().isoformat()
     try:
         with sqlite3.connect(DB_PATH, timeout=30) as con:
@@ -193,29 +326,33 @@ def create_user(email: str, password: str, username: str):
             con.execute("PRAGMA synchronous=NORMAL")
             cur = con.cursor()
             cur.execute(
-                "INSERT INTO users (email, password_hash, username, created_at) VALUES (?,?,?,?)",
-                (email, pw_hash, username, created),
+                """INSERT INTO users (
+                       email, password_hash, username, display_name, avatar_url,
+                       is_premium, is_bot, google_id, created_at
+                   ) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (email_clean, pw_hash, username_clean, display_clean, avatar_clean,
+                 1 if is_premium else 0, 1 if is_bot else 0, google_id, created),
             )
             return cur.lastrowid, None
-    except sqlite3.IntegrityError:
-        return None, "このメールアドレスは既に登録されています"
+    except sqlite3.IntegrityError as e:
+        msg = str(e).lower()
+        if "email" in msg:
+            return None, "このメールアドレスは既に登録されています"
+        if "username" in msg:
+            return None, "このユーザー名は既に使われています"
+        if "google_id" in msg:
+            return None, "この Google アカウントは既に連携されています"
+        return None, "登録に失敗しました"
 
 
 def authenticate(email: str, password: str):
-    """戻り値: user dict or None"""
+    """戻り値: user dict or None。email + password でログイン。"""
     email = (email or "").strip().lower()
     pw_hash = hash_password(password or "")
     with sqlite3.connect(DB_PATH, timeout=30) as con:
         con.execute("PRAGMA journal_mode=WAL")
         cur = con.cursor()
-        cur.execute(
-            "SELECT id, email, username, created_at FROM users WHERE email=? AND password_hash=?",
-            (email, pw_hash),
-        )
-        row = cur.fetchone()
-    if not row:
-        return None
-    return {"id": row[0], "email": row[1], "username": row[2], "created_at": row[3]}
+        return _select_user(cur, "email = ? AND password_hash = ?", (email, pw_hash))
 
 
 def create_session(user_id: int) -> str:
@@ -242,28 +379,26 @@ def delete_session(token: str):
 
 
 def get_user_by_token(token: str):
-    """有効なセッショントークンからユーザーを取得。期限切れは None。"""
+    """有効なセッショントークンからユーザー (SNS版) を取得。"""
     if not token:
         return None
     with sqlite3.connect(DB_PATH, timeout=30) as con:
         con.execute("PRAGMA journal_mode=WAL")
         cur = con.cursor()
         cur.execute(
-            """SELECT u.id, u.email, u.username, u.created_at, s.expires_at
-               FROM sessions s JOIN users u ON u.id = s.user_id
-               WHERE s.token = ?""",
-            (token,),
+            "SELECT user_id, expires_at FROM sessions WHERE token = ?", (token,)
         )
         row = cur.fetchone()
-    if not row:
-        return None
-    try:
-        if datetime.fromisoformat(row[4]) < datetime.now():
-            delete_session(token)
+        if not row:
             return None
-    except Exception:
-        return None
-    return {"id": row[0], "email": row[1], "username": row[2], "created_at": row[3]}
+        try:
+            if datetime.fromisoformat(row[1]) < datetime.now():
+                cur.execute("DELETE FROM sessions WHERE token=?", (token,))
+                return None
+        except Exception:
+            return None
+        user = _select_user(cur, "id = ?", (row[0],))
+    return user
 
 
 def extract_token(headers) -> str:
@@ -272,6 +407,185 @@ def extract_token(headers) -> str:
     if auth.startswith("Bearer "):
         return auth[7:].strip()
     return ""
+
+
+# ===== Google OAuth =====
+def _purge_oauth_states():
+    now = time.time()
+    with _oauth_lock:
+        for k in [k for k, t in _oauth_states.items() if now - t > OAUTH_STATE_TTL]:
+            del _oauth_states[k]
+
+
+def issue_oauth_state():
+    state = secrets.token_urlsafe(24)
+    with _oauth_lock:
+        _oauth_states[state] = time.time()
+    _purge_oauth_states()
+    return state
+
+
+def consume_oauth_state(state):
+    _purge_oauth_states()
+    with _oauth_lock:
+        return _oauth_states.pop(state, None) is not None
+
+
+def build_google_auth_url():
+    if not GOOGLE_CLIENT_ID:
+        return None
+    state = issue_oauth_state()
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "access_type": "online",
+        "prompt": "select_account",
+    }
+    from urllib.parse import urlencode
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+
+
+def exchange_google_code(code):
+    """authorization code を access_token + userinfo に交換。"""
+    from urllib.parse import urlencode
+    token_body = urlencode({
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "grant_type": "authorization_code",
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://oauth2.googleapis.com/token", data=token_body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as res:
+        tok = json.loads(res.read().decode("utf-8"))
+    access_token = tok.get("access_token")
+    if not access_token:
+        raise RuntimeError("Google access_token を取得できませんでした")
+
+    req2 = urllib.request.Request(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    with urllib.request.urlopen(req2, timeout=15) as res:
+        info = json.loads(res.read().decode("utf-8"))
+    return info  # {sub, email, name, picture, ...}
+
+
+def find_or_create_google_user(info):
+    sub = info.get("sub")
+    if not sub:
+        return None, "Google 応答に sub が含まれません"
+    existing = get_user_by_google_id(sub)
+    if existing:
+        return existing, None
+    email = info.get("email") or None
+    if email:
+        existing_by_email = get_user_by_email(email)
+        if existing_by_email:
+            # 既存ユーザーに google_id を紐づけ
+            with sqlite3.connect(DB_PATH, timeout=30) as con:
+                con.execute("UPDATE users SET google_id = ? WHERE id = ?", (sub, existing_by_email["id"]))
+            return get_user_by_id(existing_by_email["id"]), None
+    name = info.get("name") or (email.split("@")[0] if email else "user")
+    username = _allocate_username(name)
+    uid, err = create_user(
+        email=email, username=username, display_name=name,
+        google_id=sub, avatar_url=info.get("picture"),
+    )
+    if err:
+        return None, err
+    return get_user_by_id(uid), None
+
+
+# ===== WAVE ORACLE bot =====
+BOT_USERNAME = "wave_oracle"
+BOT_DISPLAY_NAME = "WAVE ORACLE 🤖"
+BOT_BIO = "AIが波・風・選手データを読み解いて Grade-S の予想だけを投稿します。"
+_BOT_ID_CACHE = None
+
+
+def ensure_wave_oracle_bot():
+    """起動時に WAVE ORACLE ボットユーザーを作成する。"""
+    global _BOT_ID_CACHE
+    existing = get_user_by_username(BOT_USERNAME)
+    if existing:
+        _BOT_ID_CACHE = existing["id"]
+        return existing
+    uid, err = create_user(
+        username=BOT_USERNAME, display_name=BOT_DISPLAY_NAME,
+        is_bot=True, is_premium=True,
+        avatar_url=None,
+    )
+    if err:
+        print(f"  [warn] WAVE ORACLE ボット作成失敗: {err}")
+        return None
+    # bio を別途設定
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("UPDATE users SET bio = ? WHERE id = ?", (BOT_BIO, uid))
+    _BOT_ID_CACHE = uid
+    return get_user_by_id(uid)
+
+
+def get_wave_oracle_id():
+    global _BOT_ID_CACHE
+    if _BOT_ID_CACHE:
+        return _BOT_ID_CACHE
+    u = get_user_by_username(BOT_USERNAME)
+    if u:
+        _BOT_ID_CACHE = u["id"]
+    return _BOT_ID_CACHE
+
+
+def save_bot_grade_s_post(race_date, venue, race_num, pred_json):
+    """Grade-S 予想を WAVE ORACLE として predictions_public に投稿。
+    既に同レースの bot 投稿があれば何もしない。"""
+    bot_id = get_wave_oracle_id()
+    if not bot_id:
+        return None
+    honmei = pred_json.get("honmei", []) or []
+    if len(honmei) < 3:
+        return None
+    try:
+        h = int(honmei[0].get("num"))
+        n = int(honmei[1].get("num"))
+        s = int(honmei[2].get("num"))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    if len({h, n, s}) != 3 or any(x < 1 or x > 6 for x in (h, n, s)):
+        return None
+    grade = pred_json.get("grade", {}) or {}
+    parts = []
+    for k, lbl in (("tan", "単勝"), ("niren", "2連"), ("sanren", "3連単")):
+        if str(grade.get(k, "") or "").upper().startswith("S"):
+            parts.append(f"{lbl}S")
+    comment = ("WAVE ORACLE: " + " / ".join(parts)) if parts else "WAVE ORACLE: Grade-S"
+    with sqlite3.connect(DB_PATH, timeout=30) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=NORMAL")
+        cur = con.cursor()
+        cur.execute(
+            "SELECT id FROM predictions_public WHERE user_id=? AND race_date=? AND venue=? AND race_num=?",
+            (bot_id, race_date, venue, race_num),
+        )
+        if cur.fetchone():
+            return None
+        now = datetime.now().isoformat()
+        cur.execute(
+            """INSERT INTO predictions_public
+               (user_id, race_date, venue, race_num,
+                honmei_num, niban_num, sanban_num,
+                comment, posted_at, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (bot_id, race_date, venue, race_num, h, n, s,
+             comment, now, now),
+        )
+        return cur.lastrowid
 
 
 def save_prediction(race_date, venue, race_num, pred_json):
@@ -315,17 +629,16 @@ def save_prediction(race_date, venue, race_num, pred_json):
     return pred_id
 
 
-def _judge_user_prediction(honmei, niban, sanban, first, second, third):
-    """ユーザー予想 ◎○▲ と結果 1-2-3 を照合して、最も高い的中レベルを返す。
-    レベル: 'sanren_tan' > 'sanren_fuku' > 'niren_tan' > 'niren_fuku' > 'tan' > 'none'"""
+def judge_hit(honmei, niban, sanban, first, second, third):
+    """予想 ◎○▲ と結果 1-2-3 を照合して最も高い的中レベルを返す。
+    'sanren_tan' > 'sanren_fuku' > 'niren_tan' > 'niren_fuku' > 'tan' > 'none' (未的中) / None (結果未登録)"""
     if first is None or second is None or third is None:
         return None
     pred = (honmei, niban, sanban)
     actual = (first, second, third)
-    actual_set = {first, second, third}
     if pred == actual:
         return "sanren_tan"
-    if set(pred) == actual_set:
+    if set(pred) == set(actual):
         return "sanren_fuku"
     if honmei == first and niban == second:
         return "niren_tan"
@@ -334,196 +647,6 @@ def _judge_user_prediction(honmei, niban, sanban, first, second, third):
     if honmei == first:
         return "tan"
     return "none"
-
-
-def save_user_prediction(user_id, race_date, venue, race_num, honmei, niban, sanban, note=""):
-    """戻り値: (id, error)。失敗時は id=None"""
-    try:
-        honmei = int(honmei); niban = int(niban); sanban = int(sanban)
-    except (TypeError, ValueError):
-        return None, "◎○▲ は数値で指定してください"
-    for n in (honmei, niban, sanban):
-        if n < 1 or n > 6:
-            return None, "◎○▲ は 1〜6 の数字で指定してください"
-    if len({honmei, niban, sanban}) != 3:
-        return None, "◎○▲ は異なる艇番にしてください"
-    race_date = (race_date or "").strip()
-    venue = (venue or "").strip()
-    race_num = (race_num or "").strip()
-    if not race_date or not venue or not race_num:
-        return None, "日付・会場・レース番号は必須です"
-
-    with sqlite3.connect(DB_PATH, timeout=30) as con:
-        con.execute("PRAGMA journal_mode=WAL")
-        con.execute("PRAGMA synchronous=NORMAL")
-        cur = con.cursor()
-        cur.execute(
-            """INSERT INTO user_predictions
-               (user_id, race_date, venue, race_num,
-                honmei_num, niban_num, sanban_num, note, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (user_id, race_date, venue, race_num, honmei, niban, sanban,
-             (note or "").strip()[:200], datetime.now().isoformat()),
-        )
-        return cur.lastrowid, None
-
-
-def delete_user_prediction(user_id, pred_id):
-    """戻り値: True if deleted, False if not found / not owner"""
-    with sqlite3.connect(DB_PATH, timeout=30) as con:
-        con.execute("PRAGMA journal_mode=WAL")
-        cur = con.cursor()
-        cur.execute(
-            "DELETE FROM user_predictions WHERE id=? AND user_id=?",
-            (pred_id, user_id),
-        )
-        return cur.rowcount > 0
-
-
-def list_user_predictions(user_id, limit=100):
-    """ユーザー自身の予想一覧。結果テーブルと JOIN して的中レベルを付与する。"""
-    with sqlite3.connect(DB_PATH, timeout=30) as con:
-        con.execute("PRAGMA journal_mode=WAL")
-        cur = con.cursor()
-        cur.execute(
-            """SELECT up.id, up.race_date, up.venue, up.race_num,
-                      up.honmei_num, up.niban_num, up.sanban_num,
-                      up.note, up.created_at,
-                      r.first, r.second, r.third
-               FROM user_predictions up
-               LEFT JOIN results r
-                 ON r.race_date = up.race_date
-                AND r.venue     = up.venue
-                AND r.race_num  = up.race_num
-               WHERE up.user_id = ?
-               ORDER BY up.id DESC
-               LIMIT ?""",
-            (user_id, limit),
-        )
-        rows = cur.fetchall()
-    out = []
-    for r in rows:
-        hit = _judge_user_prediction(r[4], r[5], r[6], r[9], r[10], r[11])
-        out.append({
-            "id": r[0],
-            "race_date": r[1], "venue": r[2], "race_num": r[3],
-            "honmei": r[4], "niban": r[5], "sanban": r[6],
-            "note": r[7] or "",
-            "created_at": r[8],
-            "result": ({"first": r[9], "second": r[10], "third": r[11]}
-                       if r[9] is not None else None),
-            "hit": hit,
-        })
-    return out
-
-
-def get_ranking(period: str, limit: int = 20, min_judged: int = 3):
-    """期間内の的中率ランキングを返す。
-    period: 'week' (直近7日) | 'month' (直近30日)
-    最小判定数 min_judged 未満のユーザーは除外し、的中率の僅差は的中数で順位付け。"""
-    today = date.today()
-    if period == "week":
-        start = today - timedelta(days=6)   # 今日を含めて7日
-        label = "週間"
-    elif period == "month":
-        start = today - timedelta(days=29)  # 今日を含めて30日
-        label = "月間"
-    else:
-        start = today - timedelta(days=29)
-        label = "月間"
-    start_iso = start.isoformat()
-
-    with sqlite3.connect(DB_PATH, timeout=30) as con:
-        con.execute("PRAGMA journal_mode=WAL")
-        cur = con.cursor()
-        cur.execute(
-            """SELECT u.id, u.username,
-                      up.honmei_num, up.niban_num, up.sanban_num,
-                      r.first, r.second, r.third
-               FROM users u
-               JOIN user_predictions up ON up.user_id = u.id
-               JOIN results r
-                 ON r.race_date = up.race_date
-                AND r.venue     = up.venue
-                AND r.race_num  = up.race_num
-               WHERE up.race_date >= ?""",
-            (start_iso,),
-        )
-        rows = cur.fetchall()
-
-    stats = {}
-    for uid, username, h, o, s, f1, f2, f3 in rows:
-        hit = _judge_user_prediction(h, o, s, f1, f2, f3)
-        st = stats.setdefault(uid, {
-            "user_id": uid, "username": username,
-            "judged": 0, "hits": 0,
-            "sanren_tan": 0, "sanren_fuku": 0,
-            "niren_tan": 0, "niren_fuku": 0, "tan": 0,
-        })
-        st["judged"] += 1
-        if hit and hit != "none":
-            st["hits"] += 1
-            st[hit] = st.get(hit, 0) + 1
-
-    items = []
-    for st in stats.values():
-        if st["judged"] < min_judged:
-            continue
-        st["hit_rate"] = round(st["hits"] / st["judged"] * 1000) / 10
-        items.append(st)
-    items.sort(key=lambda x: (-x["hit_rate"], -x["hits"], -x["judged"]))
-    return {
-        "period": period,
-        "label": label,
-        "start_date": start_iso,
-        "end_date": today.isoformat(),
-        "min_judged": min_judged,
-        "ranking": items[:limit],
-    }
-
-
-def list_users_with_stats(limit: int = 100):
-    """全ユーザーと累計サマリー (全期間)"""
-    with sqlite3.connect(DB_PATH, timeout=30) as con:
-        con.execute("PRAGMA journal_mode=WAL")
-        cur = con.cursor()
-        cur.execute(
-            """SELECT u.id, u.username, u.created_at,
-                      COUNT(up.id) AS total_preds
-               FROM users u
-               LEFT JOIN user_predictions up ON up.user_id = u.id
-               GROUP BY u.id
-               ORDER BY u.id ASC
-               LIMIT ?""",
-            (limit,),
-        )
-        users = [{"id": r[0], "username": r[1], "created_at": r[2], "total_predictions": r[3]} for r in cur.fetchall()]
-
-        cur.execute(
-            """SELECT u.id,
-                      up.honmei_num, up.niban_num, up.sanban_num,
-                      r.first, r.second, r.third
-               FROM users u
-               JOIN user_predictions up ON up.user_id = u.id
-               JOIN results r
-                 ON r.race_date = up.race_date
-                AND r.venue     = up.venue
-                AND r.race_num  = up.race_num"""
-        )
-        agg = {}
-        for uid, h, o, s, f1, f2, f3 in cur.fetchall():
-            hit = _judge_user_prediction(h, o, s, f1, f2, f3)
-            a = agg.setdefault(uid, {"judged": 0, "hits": 0})
-            a["judged"] += 1
-            if hit and hit != "none":
-                a["hits"] += 1
-
-    for u in users:
-        a = agg.get(u["id"], {"judged": 0, "hits": 0})
-        u["judged"] = a["judged"]
-        u["hits"] = a["hits"]
-        u["hit_rate"] = round(a["hits"] / a["judged"] * 1000) / 10 if a["judged"] else 0
-    return users
 
 
 def save_result(race_date, venue, race_num, first, second, third):
@@ -536,19 +659,34 @@ def save_result(race_date, venue, race_num, first, second, third):
             VALUES (?,?,?,?,?,?,?)
         """, (race_date, venue, race_num, first, second, third, datetime.now().isoformat()))
 
-        # 的中判定
+        # 旧 AI予想の bet_results 的中判定
         cur.execute("""
             SELECT br.id, br.prediction_id, br.kenshu, br.kumiawase, br.kin, br.odds
             FROM bet_results br
             JOIN predictions p ON br.prediction_id = p.id
             WHERE p.race_date=? AND p.venue=? AND p.race_num=?
         """, (race_date, venue, race_num))
-        bets = cur.fetchall()
-
-        for bet_id, pred_id, kenshu, kumiawase, kin, odds in bets:
+        for bet_id, pred_id, kenshu, kumiawase, kin, odds in cur.fetchall():
             hit = check_hit(kenshu, kumiawase, first, second, third)
             payout = int(kin * odds) if hit else 0
             cur.execute("UPDATE bet_results SET hit=?, payout=? WHERE id=?", (1 if hit else 0, payout, bet_id))
+
+        # SNS 版 predictions_public の的中判定 (同レースの全投稿)
+        cur.execute(
+            """SELECT id, honmei_num, niban_num, sanban_num
+               FROM predictions_public
+               WHERE race_date=? AND venue=? AND race_num=?""",
+            (race_date, venue, race_num),
+        )
+        for pp_id, h, n, s in cur.fetchall():
+            hit_kind = judge_hit(h, n, s, first, second, third)
+            is_hit = 1 if hit_kind and hit_kind != "none" else 0
+            cur.execute(
+                """UPDATE predictions_public
+                   SET result_first=?, result_second=?, result_third=?, is_hit=?, hit_kind=?
+                   WHERE id=?""",
+                (first, second, third, is_hit, hit_kind, pp_id),
+            )
 
 
 def check_hit(kenshu, kumiawase, first, second, third):
@@ -920,6 +1058,13 @@ def _bulk_worker(range_filter="all"):
                             race_date_str, venue_name, f"{rno}R", pred
                         )
                         saved += 1
+                        # WAVE ORACLE が SNS タイムラインに自動投稿
+                        try:
+                            save_bot_grade_s_post(
+                                race_date_str, venue_name, f"{rno}R", pred
+                            )
+                        except Exception as be:
+                            print(f"  bot post error: {venue_name} {rno}R {be}")
                         honmei = pred.get("honmei", []) or []
                         h = honmei[0] if len(honmei) > 0 else {}
                         o = honmei[1] if len(honmei) > 1 else {}
@@ -1082,11 +1227,39 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return user
 
+    def _require_premium(self):
+        """is_premium=true のユーザーのみ通す。"""
+        user = self._require_user()
+        if user is None:
+            return None
+        if not user.get("is_premium"):
+            self.send_json(403, {"error": "プレミアム会員限定です", "premium_required": True})
+            return None
+        return user
+
+    def _send_redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _send_html(self, code, html):
+        body = html.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", len(body))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         parsed = urlparse(self.path)
 
         if parsed.path == "/health":
-            self.send_json(200, {"status": "ok", "api_key_set": bool(API_KEY)})
+            self.send_json(200, {
+                "status": "ok",
+                "api_key_set": bool(API_KEY),
+                "google_oauth_configured": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET),
+            })
             return
 
         if parsed.path == "/stats":
@@ -1101,23 +1274,43 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"user": user})
             return
 
-        if parsed.path == "/my_predictions":
-            user = self._require_user()
-            if not user:
+        # ===== Google OAuth =====
+        if parsed.path == "/auth/google":
+            url = build_google_auth_url()
+            if not url:
+                self.send_json(503, {"error": "Google OAuth が未設定です (GOOGLE_CLIENT_ID 未設定)"})
                 return
-            self.send_json(200, {"predictions": list_user_predictions(user["id"])})
+            self._send_redirect(url)
             return
 
-        if parsed.path == "/ranking":
+        if parsed.path == "/auth/google/callback":
             qs = parse_qs(parsed.query)
-            period = (qs.get("period", ["week"])[0] or "week").lower()
-            if period not in ("week", "month"):
-                period = "week"
-            self.send_json(200, get_ranking(period))
-            return
-
-        if parsed.path == "/users":
-            self.send_json(200, {"users": list_users_with_stats()})
+            code = (qs.get("code") or [""])[0]
+            state = (qs.get("state") or [""])[0]
+            err = (qs.get("error") or [""])[0]
+            if err:
+                self._send_html(400, f"<h1>Google認証エラー</h1><p>{err}</p><a href='/'>戻る</a>")
+                return
+            if not code or not state or not consume_oauth_state(state):
+                self._send_html(400, "<h1>不正なリクエスト</h1><p>state パラメータが無効です。</p><a href='/'>戻る</a>")
+                return
+            try:
+                info = exchange_google_code(code)
+                user, derr = find_or_create_google_user(info)
+                if derr or not user:
+                    raise RuntimeError(derr or "ユーザー解決に失敗")
+                token = create_session(user["id"])
+            except Exception as e:
+                self._send_html(500, f"<h1>Google認証失敗</h1><pre>{e}</pre><a href='/'>戻る</a>")
+                return
+            # JSでlocalStorageに保存→ホームへ遷移
+            html = f"""<!doctype html><meta charset='utf-8'><title>ログイン中...</title>
+<script>
+  localStorage.setItem('boatrace_auth_token', {json.dumps(token)});
+  location.href = '/';
+</script>
+ログイン処理中..."""
+            self._send_html(200, html)
             return
 
         if parsed.path in ("/", "/index.html"):
@@ -1252,24 +1445,27 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
 
         # ===== 認証系 =====
-        if parsed.path == "/register":
+        if parsed.path == "/auth/register":
             try:
                 data = json.loads(body) if body else {}
             except Exception:
                 self.send_json(400, {"error": "JSONが不正です"})
                 return
             user_id, err = create_user(
-                data.get("email", ""), data.get("password", ""), data.get("username", "")
+                email=data.get("email"),
+                password=data.get("password"),
+                username=data.get("username"),
+                display_name=data.get("display_name"),
             )
             if err:
                 self.send_json(400, {"error": err})
                 return
             token = create_session(user_id)
-            user = get_user_by_token(token)
+            user = get_user_by_id(user_id)
             self.send_json(200, {"token": token, "user": user})
             return
 
-        if parsed.path == "/login":
+        if parsed.path == "/auth/login":
             try:
                 data = json.loads(body) if body else {}
             except Exception:
@@ -1283,64 +1479,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"token": token, "user": user})
             return
 
-        if parsed.path == "/logout":
+        if parsed.path == "/auth/logout":
             delete_session(extract_token(self.headers))
             self.send_json(200, {"ok": True})
             return
 
-        # ===== ここから先は要ログイン =====
-        AUTH_REQUIRED_POSTS = {
+        # ===== ここから先は要ログイン (AI予想は要プレミアム) =====
+        PREMIUM_REQUIRED_POSTS = {
             "/scrape", "/predict",
             "/bulk_predict", "/bulk_cancel",
             "/venue_predict", "/venue_cancel",
-            "/result",
-            "/my_predictions", "/my_predictions/delete",
         }
+        AUTH_REQUIRED_POSTS = {"/result"}
         user = None
-        if parsed.path in AUTH_REQUIRED_POSTS:
+        if parsed.path in PREMIUM_REQUIRED_POSTS:
+            user = self._require_premium()
+            if user is None:
+                return
+        elif parsed.path in AUTH_REQUIRED_POSTS:
             user = self._require_user()
             if user is None:
                 return
-
-        # /my_predictions : 手動予想を記録
-        if parsed.path == "/my_predictions":
-            try:
-                data = json.loads(body) if body else {}
-            except Exception:
-                self.send_json(400, {"error": "JSONが不正です"})
-                return
-            pid, err = save_user_prediction(
-                user["id"],
-                data.get("race_date", ""),
-                data.get("venue", ""),
-                data.get("race_num", ""),
-                data.get("honmei"), data.get("niban"), data.get("sanban"),
-                data.get("note", ""),
-            )
-            if err:
-                self.send_json(400, {"error": err})
-                return
-            self.send_json(200, {"ok": True, "id": pid})
-            return
-
-        # /my_predictions/delete : 自分の予想を削除
-        if parsed.path == "/my_predictions/delete":
-            try:
-                data = json.loads(body) if body else {}
-            except Exception:
-                self.send_json(400, {"error": "JSONが不正です"})
-                return
-            try:
-                pid = int(data.get("id"))
-            except (TypeError, ValueError):
-                self.send_json(400, {"error": "id が必要です"})
-                return
-            ok = delete_user_prediction(user["id"], pid)
-            if not ok:
-                self.send_json(404, {"error": "見つからないか権限がありません"})
-                return
-            self.send_json(200, {"ok": True})
-            return
 
         # /bulk_predict : バックグラウンド起動、即座に応答を返す
         if parsed.path == "/bulk_predict":
@@ -1570,12 +1729,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     init_db()
+    ensure_wave_oracle_bot()
     if not API_KEY:
         print("=" * 55)
         print("  警告: ANTHROPIC_API_KEY が設定されていません")
         print("=" * 55)
+    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+        print("  [info] GOOGLE_CLIENT_ID/SECRET 未設定: Google ログインは無効化されます")
 
-    print(f"\nCC ボートレース予想 AI サーバー起動中...")
+    print(f"\nボートレース SNS サーバー起動中...")
     print(f"  PORT: {PORT}")
     print(f"  DB: {DB_PATH}")
     print(f"  停止するには Ctrl+C を押してください\n")
